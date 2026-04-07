@@ -1,88 +1,143 @@
-# SPARC-Agent 🚀
+# SPARC-Agent
 
-**An AI-driven, stateful, multi-agent orchestration architecture for democratizing student finance.**
+AI-driven, stateful multi-agent platform for student-finance onboarding, document fraud prevention, eligibility scoring, and disbursal readiness.
 
-Built for the 24-hour Hackathon. Millions of deserving Indian students fail to access higher education due to a fragmented process and lack of formal CIBIL/income proof. SPARC-Agent solves this by functioning as a "Financial Aid Office in a pocket," using Alternative Data Credit Scoring and a rigorous explainable edge-case escalation layer.
+## Overview
 
----
+SPARC helps students who may lack traditional credit proof by using alternative data, explainable fraud checks, and human-in-the-loop escalation when risk is uncertain.
 
-## 🏗️ System Architecture
+Core capabilities:
+- Multi-agent orchestration with persistent journey state.
+- 4-layer fraud prevention with trust score output.
+- Admin escalation review workflow for medium/high risk cases.
+- Bank details tokenization flow for disbursal readiness.
+- Full audit trail for compliance and explainability.
 
-SPARC operates on three distinct layers that communicate through a single persistent Source of Truth (Firebase). The backend utilizes a strictly routed graph of autonomous agents perfectly eliminating hallucination risks.
+## Architecture
 
 ```mermaid
 graph TD
-    S[Student Mobile Web App <br> React PWA] -->|Uploads Alt Data| B(FastAPI Backend Endpoints <br> main.py)
-    A[Counsellor Admin Portal <br> React Desktop] -->|Manual Escalation Review| B
-    
-    B --> O{LangGraph Master Orchestrator<br>agents/orchestrator.py}
-    
-    subgraph Multi-Agent AI Swarm
-        O -->|1. Data Intel| D[Document Assessor Agent <br> agents/document.py]
-        D -->|2. Score & Rule Evaluate| E[Bias-Aware Assessor Agent <br> agents/eligibility.py]
-        E -->|3. Route & Match| M[Scholarship Logic Engine <br> agents/scholarship.py]
-    end
-    
-    D -.->|Update State & Audit Log| DB[(Firebase Firestore <br> persistence/firestore.py)]
-    E -.->|Update State & Audit Log| DB
-    M -.->|Update State & Audit Log| DB
-    
-    O -.-> |Telemetry & Forensic Metrics| L[LangSmith Observability]
+    S[Student PWA - React] --> B[FastAPI Backend]
+    A[Admin Portal - React] --> B
+    B --> O[LangGraph Orchestrator]
+    O --> D[Document + Fraud Agent]
+    O --> E[Eligibility Agent]
+    O --> M[Scholarship/Disbursal Agent]
+    D --> F[(Firestore)]
+    E --> F
+    M --> F
 ```
 
-### Agent Breakdown (By File)
-- **`backend/agents/orchestrator.py` (The Master Agent)**: Stitches the entire workflow together sequentially using `LangGraph`. Handles error rollback resiliency. Triggers **Data Ephemeralization** hooks to instantly delete uploaded documents from Cloud Storage after the run to maintain privacy compliance.
-- **`backend/agents/document.py` (Document Intel)**: Ingests unstructured files via secure Firebase Storage URLs. Powered crucially by `gpt-4o` (Vision via `langchain-openai`), it visually parses Alternative Data like Academic Transcripts and basic Utility Bills, automatically emitting structured proxy attributes to bypass the need for formal ITR documents.
-- **`backend/agents/eligibility.py` (Risk Assessor)**: A Bias-Aware scoring model that computes a dynamic Alternative Credit Score (0-1000). If this calculates poorly, **it halts the autonomy** and escalates to a human operator via the Admin Command Center (where PII data masking auto-blurs identities).
-- **`backend/agents/scholarship.py` (The Logic Engine)**: Navigates 400+ government and private lender schemes to return optimal paths. It completes its run by sending a live HTTP POST to our dedicated Mock Bank API (`/api/lender/v1/disburse`) to trigger the final disbursal receipt.
+### Key backend modules
+- `backend/agents/orchestrator.py`: routes workflow, handles journey transitions.
+- `backend/agents/document.py`: document intelligence + fraud-layer integration.
+- `backend/agents/fraud_detection.py`: validation, fuzzy matching, risk scoring.
+- `backend/routers/lender.py`: bank details and disbursal-related APIs.
+- `backend/main.py`: API app entry and routing.
 
----
+## Fraud Prevention System (4 Layers)
 
-## 🛤️ Autonomous User Flow Engine
+### Layer 1: Format validation
+- Aadhaar checksum validation (Verhoeff).
+- PAN format validation (NSDL-style checks).
+- Utility account format checks.
+- Hard invalids can be auto-rejected quickly.
 
-When a student hits the endpoint, this is exactly what happens linearly under the hood:
+### Layer 2: Cross-document matching
+- Fuzzy name matching across Aadhaar/PAN/Utility.
+- Fuzzy address matching for consistency.
+- Threshold-based penalties for mismatch patterns.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant S as Student (PWA)
-    participant O as Master Agent
-    participant D as DocAgent
-    participant R as RiskAgent
-    participant E as ScholarshipEngine
-    participant C as Admin Counsellor
+### Layer 3: Vision-based document analysis
+- Blur scoring.
+- Tampering/forgery signal checks.
+- Readability and security feature checks (for supported docs).
 
-    S->>O: Submits Aadhaar/Utility via Mobile Camera (Firebase Storage)
-    O->>D: Route to document_intelligence_node()
-    D-->>O: GPT-4o Vision extracts JSON from photo (+85 alt-points)
-    O->>R: Route to eligibility_scoring_node()
-    R->>R: Calculate Alternative Credit Score dynamically
-    
-    alt Alt-Score < 400 (Fails Auto-Criteria)
-        R-->>O: Update state to HITL_ESCALATION
-        O-->>C: Flag hits Global Priority Queue!
-        C->>C: Review AI Split-Screen Debate: <br> Advocate (Pro) vs Risk Assessor (Con)
-        C-->>O: Triggers Manual Secure Override
-    else Alt-Score >= 400 (Passes Auto-Criteria)
-        R-->>O: Update state to ELIGIBILITY_SCORED
-    end
+### Layer 4: Risk scoring and action routing
+- Aggregates prior layer signals into a trust score (0-100).
+- Default decision matrix:
+  - `85-100`: Auto-approve (low risk)
+  - `70-84`: Manual review (medium risk)
+  - `50-69`: Manual review (high risk)
+  - `0-49`: Auto-reject (critical risk)
 
-    O->>E: Route to scholarship_matching_node()
-    E->>E: Internal POST /api/lender/v1/disburse (Lender Webhook)
-    E-->>O: Returns matched Schemes & Mock Bank Receipt ID
-    O->>O: Invokes Data Ephemeralization (Deletes user files from Storage)
-    O-->>S: Real-time UI updates to "Approved" with Trust Gauge Data
-```
+### Typical performance targets
+- End-to-end detection: ~10-20 seconds per application.
+- High auto-approval with low manual-review burden.
+- Complete audit trail for every decision.
 
-### Flow Highlights:
-- **Zero Hallucination Logging**: At every step in the `sequenceDiagram`, the sub-agent constructs a "plain-English" thought reasoning array. This array is continuously streamed to the global `StudentJourneyState` interface in Firebase.
-- **The Split-Screen Human Layer**: If Step 5 executes, the Admin doesn't just see a "Rejected" flag. They see the AI debate exactly *why* they failed (The Risk Assessment Node parameters) contrasted against *why* they could be a good fit (The Advocate Node processing their extracurricular NLP).
+## Journey and Escalation Flow
 
----
+1. Student uploads documents.
+2. Orchestrator runs document + fraud checks.
+3. System computes trust score and risk level.
+4. Outcome:
+   - Low risk: continue to eligibility/disbursal flow.
+   - Medium/high risk: send to admin escalation panel.
+   - Critical risk: fraud lockout/reject path.
+5. Admin can approve/reject/escalate for more docs; decision is logged.
 
-## 🛠️ Run it Locally
+## Admin Escalation Panel (What it includes)
 
-**1. Backend Orchestrator:**
+- Pending queue sorted by risk and recency.
+- Case detail with:
+  - Trust score and fraud flags.
+  - Layer-by-layer breakdown.
+  - Document previews and AI notes.
+  - Audit trail context.
+- Admin actions:
+  - Approve
+  - Reject
+  - Request more documents
+- On approval, journey resumes to downstream eligibility/disbursal steps.
+
+## Bank Details Tokenization
+
+### Why this design
+- Avoids storing full account numbers directly.
+- Uses tokenized identifiers and masked account display (`XXXX1234`).
+- Supports fintech-style security posture and cleaner compliance story.
+
+### Data captured
+- Account holder name
+- Bank name
+- Masked account suffix
+- `tokenized_account_id`
+- Verification timestamp
+
+### API endpoints
+- `POST /api/lender/v1/bank-details`: store tokenized bank details.
+- `GET /api/lender/v1/bank-details/{user_id}`: fetch masked verified details.
+- `POST /api/lender/v1/disburse`: should verify bank details before transfer.
+
+### Storage pattern
+- Journey state stores metadata/flags.
+- Sensitive bank-record document stored in separate collection (`student_bank_accounts`) with restricted access.
+
+## Security and Compliance Notes
+
+- No full bank account number persistence in normal flow.
+- Masked outputs only for retrieval endpoints.
+- Layered fraud defense lowers spoofing risk.
+- Human-in-the-loop review for ambiguous cases.
+- Audit logs preserve explainability for review and governance.
+
+## Testing Checklist
+
+- Fraud:
+  - Valid docs pass and produce high trust scores.
+  - Clear checksum/format failures reject correctly.
+  - Name/address variance triggers review where expected.
+  - Vision signals impact risk score as designed.
+- Bank details:
+  - Form validation catches bad inputs.
+  - Tokenized details save and fetch correctly.
+  - Disbursal blocks when bank details are missing.
+  - No sensitive account data leaks in logs/responses.
+
+## Run Locally
+
+### Backend
 ```bash
 cd backend
 python -m venv venv
@@ -90,16 +145,15 @@ python -m venv venv
 pip install -r requirements.txt
 python main.py
 ```
-*(Runs on localhost:8000)*
 
-**2. Student PWA:**
+### Student frontend
 ```bash
 cd frontend-student
 npm install
 npm run dev
 ```
 
-**3. Admin Resolution Center:**
+### Admin frontend
 ```bash
 cd frontend-admin
 npm install
