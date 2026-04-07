@@ -7,34 +7,34 @@ export function AdminLogin() {
   
   if (user && role === 'student') {
      return (
-        <div className="flex h-screen items-center justify-center bg-[#060913] text-slate-300 font-sans">
-           <div className="p-8 max-w-md bg-rose-950/20 border border-rose-900/50 rounded-3xl text-center shadow-2xl">
+       <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-700 font-sans">
+          <div className="p-8 max-w-md bg-white border border-rose-200 rounded-3xl text-center shadow-xl">
               <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-white mb-2 tracking-tight">Unauthorized Terminal</h2>
-              <p className="text-sm text-slate-400 mb-6 leading-relaxed">Your Google Account <strong className="text-white">{user.email}</strong> is registered as a Student. Access to the Resolution Center is physically locked to Administrative KYC profiles.</p>
-              <button onClick={logout} className="px-6 py-2.5 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors border border-slate-700">Sign Out</button>
+              <h2 className="text-xl font-bold text-slate-900 mb-2 tracking-tight">Unauthorized Terminal</h2>
+              <p className="text-sm text-slate-600 mb-6 leading-relaxed">Your Google Account <strong className="text-slate-900">{user.email}</strong> is registered as a Student. Access is limited to admin profiles.</p>
+              <button onClick={logout} className="px-6 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors border border-slate-800">Sign Out</button>
            </div>
         </div>
      );
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-[#060913] overflow-hidden relative font-sans">
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#060913] to-[#060913] z-0"></div>
+    <div className="flex h-screen items-center justify-center bg-slate-50 overflow-hidden relative font-sans">
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-200/50 via-slate-50 to-slate-100 z-0"></div>
       
       <motion.div 
          initial={{ opacity: 0, scale: 0.95 }}
          animate={{ opacity: 1, scale: 1 }}
-         className="z-10 p-10 w-full max-w-md bg-[#0B0F19]/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl flex flex-col items-center"
+         className="z-10 p-10 w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-xl flex flex-col items-center"
       >
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-rose-600 to-indigo-500 p-[1px] shadow-[0_0_30px_rgba(225,29,72,0.3)] mb-6">
-              <div className="w-full h-full bg-[#0B0F19] rounded-2xl flex items-center justify-center">
+              <div className="w-full h-full bg-white rounded-2xl flex items-center justify-center">
                   <ShieldAlert className="w-8 h-8 text-rose-500" />
               </div>
           </div>
           
-          <h1 className="text-2xl font-black text-white tracking-tight mb-2">Admin Portal</h1>
-          <p className="text-sm text-slate-400 text-center mb-8 leading-relaxed">Strictly confidential workflow. Login with a whitelisted Workspace identity.</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Admin Portal</h1>
+          <p className="text-sm text-slate-600 text-center mb-8 leading-relaxed">Confidential review workflow. Login with your whitelisted admin identity.</p>
           
           <button 
              onClick={loginWithGoogle}

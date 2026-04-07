@@ -6,22 +6,22 @@ export function StudentLogin() {
   const { loginWithGoogle } = useAuth();
   
   return (
-    <div className="flex h-screen items-center justify-center bg-[#060913] overflow-hidden relative font-sans">
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-emerald-900/20 via-[#060913] to-[#060913] z-0"></div>
+    <div className="relative flex h-screen items-center justify-center overflow-hidden bg-slate-50 font-sans">
+      <div className="absolute inset-0 z-0 pointer-events-none bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-emerald-200/60 via-slate-50 to-slate-100"></div>
       
       <motion.div 
          initial={{ opacity: 0, y: 30 }}
          animate={{ opacity: 1, y: 0 }}
-         className="z-10 p-10 w-full max-w-md bg-[#0B0F19]/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl flex flex-col items-center mx-4"
+         className="z-10 mx-4 flex w-full max-w-md flex-col items-center rounded-3xl border border-slate-200 bg-white p-10 shadow-xl"
       >
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-400 to-teal-500 p-[1px] shadow-[0_0_30px_rgba(52,211,153,0.3)] mb-6">
-              <div className="w-full h-full bg-[#0B0F19] rounded-2xl flex items-center justify-center">
+              <div className="flex h-full w-full items-center justify-center rounded-2xl bg-white">
                   <Sparkles className="w-8 h-8 text-emerald-400" />
               </div>
           </div>
           
-          <h1 className="text-3xl font-black text-white tracking-tight mb-2">SPARC</h1>
-          <p className="text-sm text-slate-400 text-center mb-8 font-medium">Empowering your future securely. Tap to anchor your identity in 3 seconds.</p>
+          <h1 className="mb-2 text-3xl font-black tracking-tight text-slate-900">SPARC</h1>
+          <p className="mb-8 text-center text-sm font-medium text-slate-600">Empowering your future securely. Tap to begin your guided onboarding.</p>
           
           <button 
              onClick={loginWithGoogle}

@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-[#060913] text-slate-100 antialiased selection:bg-indigo-500/30;
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-indigo-300/40;
   }
 }
 
@@ -16,6 +16,6 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #94a3b8;
   border-radius: 4px;
 }

@@ -1,0 +1,341 @@
+/* Base Styles & Typography */
+:root {
+    --bg-color: #f8fafc;
+    /* Light Slate Gray */
+    --accent-color: #6366f1;
+    /* Bright Indigo */
+    --success-color: #10b981;
+    /* Emerald Green */
+    --text-primary: #0f172a;
+    /* Dark Slate */
+    --text-muted: #64748b;
+    /* Muted Slate */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.5);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Outfit', sans-serif;
+    background: linear-gradient(135deg, var(--bg-color) 0%, #e2e8f0 100%);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* Beautiful Background Orbs */
+body::before,
+body::after {
+    content: '';
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    filter: blur(100px);
+    z-index: -1;
+    opacity: 0.5;
+}
+
+body::before {
+    top: -200px;
+    left: -200px;
+    background: var(--accent-color);
+}
+
+body::after {
+    bottom: -200px;
+    right: -200px;
+    background: #3b82f6;
+    /* Blue */
+}
+
+/* Main Layout */
+.app-container {
+    display: flex;
+    gap: 2rem;
+    padding: 2rem;
+    max-width: 1200px;
+    width: 100%;
+    height: 80vh;
+}
+
+/* Glassmorphism Panel Reusable Class */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Left Panel: UI Context */
+.feedback-panel {
+    flex: 1;
+    min-width: 350px;
+    justify-content: space-between;
+}
+
+header {
+    margin-bottom: 2rem;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.logo-icon {
+    font-size: 2.5rem;
+    /* Wave animation */
+    animation: wave 2s infinite;
+    transform-origin: 70% 70%;
+}
+
+@keyframes wave {
+    0% {
+        transform: rotate(0.0deg)
+    }
+
+    10% {
+        transform: rotate(14.0deg)
+    }
+
+    20% {
+        transform: rotate(-8.0deg)
+    }
+
+    30% {
+        transform: rotate(14.0deg)
+    }
+
+    40% {
+        transform: rotate(-4.0deg)
+    }
+
+    50% {
+        transform: rotate(10.0deg)
+    }
+
+    60% {
+        transform: rotate(0.0deg)
+    }
+
+    100% {
+        transform: rotate(0.0deg)
+    }
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(to right, #a78bfa, #818cf8);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+    color: var(--text-muted);
+    font-weight: 300;
+    font-size: 1.1rem;
+    margin-top: 0.25rem;
+}
+
+/* Active Gamification Area */
+.active-challenge {
+    text-align: center;
+    padding: 1.5rem;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+}
+
+.challenge-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.challenge-header h2 {
+    font-size: 1.2rem;
+}
+
+.practice-select {
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--accent-color);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+}
+
+.target-letter {
+    font-size: 5rem;
+    font-weight: 800;
+    margin: 0.5rem 0;
+    color: var(--accent-color);
+    text-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+}
+
+.skip-btn {
+    padding: 0.5rem 1.5rem;
+    margin: 0.5rem 0 1rem;
+    border-radius: 20px;
+    border: none;
+    background: var(--accent-color);
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.skip-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 8px rgba(99, 102, 241, 0.4);
+}
+
+.hint {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* Prediction Output Area */
+.prediction-box {
+    text-align: center;
+    margin: 2rem 0;
+}
+
+.current-prediction {
+    font-size: 4rem;
+    font-weight: 800;
+    line-height: 1;
+    margin: 1rem 0;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.current-prediction.success {
+    color: var(--success-color);
+    text-shadow: 0 0 30px rgba(16, 185, 129, 0.6);
+    transform: scale(1.1);
+}
+
+.confidence {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.3rem 1rem;
+    border-radius: 20px;
+    display: inline-block;
+}
+
+/* Progress Bar (Gamified Hold) */
+.progress-section p {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 12px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    /* Dynamic fill */
+    background: linear-gradient(90deg, var(--accent-color), var(--success-color));
+    border-radius: 6px;
+    transition: width 0.1s linear;
+    /* Smooth fill */
+}
+
+/* WS Status */
+.status-message {
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    text-align: center;
+    font-weight: 600;
+    margin-top: 1rem;
+}
+
+.status-message.waiting {
+    background: rgba(234, 179, 8, 0.2);
+    color: #fde047;
+}
+
+.status-message.connected {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+}
+
+.status-message.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+}
+
+/* Right Panel: Camera */
+.camera-panel {
+    flex: 2;
+    padding: 1rem;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.video-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+}
+
+.input_video {
+    display: none;
+    /* Hidden, we only render the canvas */
+}
+
+.output_canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    /* Mirror camera locally */
+}
+
+.webcam-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-primary);
+    font-weight: 600;
+    pointer-events: none;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}

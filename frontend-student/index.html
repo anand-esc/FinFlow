@@ -1,89 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SignLingo | Gamified ASL Learning</title>
-
-    <!-- Modern Typography -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="/css/styles.css">
-
-    <!-- MediaPipe CDN Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
-        crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-</head>
-
-<body>
-    <div class="app-container">
-
-        <!-- Left Panel: Gamification & Feedback -->
-        <div class="glass-panel feedback-panel">
-            <header>
-                <div class="logo">
-                    <span class="logo-icon">✋</span>
-                    <h1>SignLingo</h1>
-                </div>
-                <p class="subtitle">Real-Time ASL Translator</p>
-            </header>
-
-            <div class="active-challenge">
-                <div class="challenge-header">
-                    <h2>Try signing:</h2>
-                    <select id="practiceSelector" class="practice-select">
-                        <option value="RANDOM">Random Mode</option>
-                    </select>
-                </div>
-                <div class="target-letter" id="targetLetter">A</div>
-                <button id="skipBtn" class="skip-btn">Skip Letter ⏭️</button>
-                <p class="hint">Show your hand clearly to the camera.</p>
-            </div>
-
-            <div class="prediction-box">
-                <p>AI Sees:</p>
-                <div class="current-prediction" id="currentPrediction">?</div>
-                <div class="confidence">
-                    <span id="confidenceText">Confidence: 0%</span>
-                </div>
-            </div>
-
-            <div class="progress-section">
-                <p>Hold to Complete:</p>
-                <div class="progress-bar-container">
-                    <div class="progress-bar" id="progressBar"></div>
-                </div>
-            </div>
-
-            <div id="statusMessage" class="status-message waiting">
-                Waiting for backend connection...
-            </div>
-        </div>
-
-        <!-- Right Panel: Camera Feed -->
-        <div class="glass-panel camera-panel">
-            <div class="video-container">
-                <!-- Hidden video element to capture feed -->
-                <video id="inputVideo" class="input_video" autoplay playsinline></video>
-                <!-- Canvas to draw the video and the green skeleton overlay -->
-                <canvas id="outputCanvas" class="output_canvas" width="640" height="480"></canvas>
-
-                <div class="webcam-status" id="webcamStatus">
-                    Loading Camera...
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Application Logic -->
-    <script src="/js/app.js"></script>
-</body>
-
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SPARC Student Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

@@ -1,110 +1,139 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { ShieldCheck, FileWarning, SearchCode, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { AlertTriangle, Eye, EyeOff, FileCheck2, ShieldAlert } from "lucide-react";
 
-export function EscalationPanel({ data, explainable }: any) {
-  const [piiMasked, setPiiMasked] = useState(true);
-
-  const togglePii = () => {
-    if (piiMasked) {
-       console.log(`[AUDIT] Human Admin revealed PII for Applicant: ${data.id}`);
-    }
-    setPiiMasked(!piiMasked);
+export function EscalationPanel({
+  data,
+  explainable,
+  onAction,
+  actionLoading,
+}: {
+  data: {
+    id: string;
+    userId: string;
+    applicant: string;
+    altScore: number;
+    journeyState: string;
+    riskLevel?: string;
+    reasoning?: string;
+    trustScore?: number;
   };
+  explainable: boolean;
+  onAction: (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD") => void;
+  actionLoading?: boolean;
+}) {
+  const [piiMasked, setPiiMasked] = useState(true);
+  const isLocked = data.journeyState === "FRAUD_LOCKOUT";
+
   return (
-    <motion.div 
-       initial={{ opacity: 0, y: 15 }}
-       animate={{ opacity: 1, y: 0 }}
-       exit={{ opacity: 0, y: -15 }}
-       className="w-full max-w-5xl bg-[#0B0F19]/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl overflow-hidden"
-    >
-       {/* Identity Bar */}
-       <div className="bg-slate-800/40 px-6 py-5 border-b border-slate-800 flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-             <div className="w-12 h-12 rounded-xl bg-slate-700/50 flex items-center justify-center font-bold text-xl text-white shadow-inner">
-                {data.applicant.charAt(0)}
-             </div>
-             <div>
-                <h3 className="text-white font-bold text-lg flex items-center">
-                   <span className={piiMasked ? "filter blur-md select-none transition-all" : "transition-all"}>{data.applicant}</span>
-                   <button onClick={togglePii} className="ml-3 text-slate-500 hover:text-indigo-400 transition-colors">
-                      {piiMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                   </button>
-                </h3>
-                <p className="text-slate-400 text-sm uppercase tracking-widest">
-                   App ID: <span className={`font-mono ml-1 ${piiMasked ? "filter blur-sm select-none transition-all" : "transition-all"}`}>{data.id}</span>
-                </p>
-             </div>
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-lg bg-slate-200 font-bold text-slate-700">{data.applicant.charAt(0)}</div>
+          <div>
+            <p className="text-sm font-bold text-slate-900">
+              <span className={piiMasked ? "blur-sm select-none" : ""}>{data.applicant}</span>
+              <button onClick={() => setPiiMasked((p) => !p)} className="ml-2 align-middle text-slate-500 hover:text-slate-700">
+                {piiMasked ? <EyeOff className="inline h-4 w-4" /> : <Eye className="inline h-4 w-4" />}
+              </button>
+            </p>
+            <p className="text-xs text-slate-500">
+              Case ID: <span className={piiMasked ? "blur-[2px] select-none" : ""}>{data.id}</span>
+            </p>
           </div>
-          <div className="flex items-center space-x-4">
-             <div className="text-right">
-                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Alt-Score</p>
-                <p className="text-2xl font-black text-rose-400 tracking-tight">{data.altScore} <span className="text-sm font-medium text-slate-500">/ 1000</span></p>
-             </div>
-             <div className="px-3 py-1.5 flex items-center bg-rose-500/10 text-rose-400 rounded-lg border border-rose-500/20 text-xs font-bold uppercase tracking-widest">
-                <AlertTriangle className="w-4 h-4 mr-2" />
-                Needs Review
-             </div>
-          </div>
-       </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500">Trust Score</p>
+          <p className={`text-xl font-bold ${isLocked ? "text-rose-600" : "text-amber-600"}`}>{data.trustScore ?? 0}/100</p>
+        </div>
+      </div>
 
-       {/* The Agentic Debate Split View */}
-       <div className="p-6">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center">
-             <SearchCode className="w-4 h-4 mr-2 text-indigo-400" /> 
-             Live Agent Argumentation Log
-          </h4>
-          
-          <div className="grid grid-cols-2 gap-6">
-             {/* Advocate Agent (Emerald) */}
-             <div className="p-5 rounded-2xl bg-emerald-950/10 border border-emerald-900/30 shadow-inner">
-                <div className="flex items-center mb-4">
-                   <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center mr-3">
-                      <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                   </div>
-                   <h5 className="font-bold text-emerald-400 uppercase tracking-widest text-xs">Prospective Advocate Agent</h5>
-                </div>
-                {explainable ? (
-                   <p className="text-emerald-300 text-sm leading-relaxed">
-                     "This student is an excellent fit! The rent document isn't perfectly formal, but their alternative data proves deep consistency and incredible merit."
-                   </p>
-                ) : (
-                   <p className="text-emerald-300/60 text-sm leading-relaxed font-mono whitespace-pre-wrap">
-                     {`EVAL: POSITIVE. \nWEIGHT_MERIT=HIGH. \nNLP_ANALYSIS="NCC Cadet" == POSITIVE_TRAIT. \nPROBABILITY_SUCCESS: 87.2%.`}
-                   </p>
-                )}
-             </div>
+      <div className="grid gap-4 p-5 md:grid-cols-3">
+        <LayerCard
+          title="Layer 1: Format"
+          tone={isLocked ? "rose" : "emerald"}
+          text={isLocked ? "Checksum failure found in government ID format validation." : "Primary format checks passed for submitted IDs."}
+        />
+        <LayerCard
+          title="Layer 2: Cross-match"
+          tone={isLocked ? "rose" : "amber"}
+          text={isLocked ? "Cross-document mismatch confirms high fraud likelihood." : "Name/address variance requires human validation."}
+        />
+        <LayerCard
+          title="Layer 3/4: Vision + Risk"
+          tone={isLocked ? "rose" : "indigo"}
+          text={isLocked ? "Risk reached lockout threshold after multi-layer aggregation." : "Combined score is borderline and routed to review queue."}
+        />
+      </div>
 
-             {/* Risk Assessor (Rose) */}
-             <div className="p-5 rounded-xl bg-rose-950/10 border border-rose-900/30 shadow-inner">
-                <div className="flex items-center mb-4">
-                   <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center mr-3">
-                      <FileWarning className="w-5 h-5 text-rose-400" />
-                   </div>
-                   <h5 className="font-bold text-rose-400 uppercase tracking-widest text-xs">Risk Assessor Agent</h5>
-                </div>
-                {explainable ? (
-                   <p className="text-rose-300 text-sm leading-relaxed">
-                     "I flagged this application because the rent document intel confidence dropped to 42%. This brings their total credit score to 385, which halts my auto-approve logic."
-                   </p>
-                ) : (
-                   <p className="text-rose-300/60 text-sm leading-relaxed font-mono whitespace-pre-wrap">
-                     {`EVAL: NEGATIVE/FLAG. \nDOC_INTEL_CONFIDENCE=0.42. \nFAIL_REASON="SIGNATURE_MISSING". \nADJ_SCORE: 385. \nACTION: HALT & ESCALATE.`}
-                   </p>
-                )}
-             </div>
+      <div className="border-t border-slate-200 px-5 py-4">
+        {isLocked ? (
+          <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800">
+            <p className="inline-flex items-center gap-2 font-semibold">
+              <ShieldAlert className="h-4 w-4" /> Locked by automated fraud layer
+            </p>
+            <p className="mt-1">{data.reasoning || "Critical validation failure identified by fraud system."}</p>
           </div>
+        ) : (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-800">
+            <p className="inline-flex items-center gap-2 font-semibold">
+              <FileCheck2 className="h-4 w-4" /> Human review requested
+            </p>
+            <p className="mt-1">
+              {explainable
+                ? "Application is likely genuine but needs a quick manual check due to confidence variance."
+                : "HITL escalation triggered by confidence threshold crossing."}
+            </p>
+          </div>
+        )}
 
-          {/* Action Buttons */}
-          <div className="mt-6 pt-6 border-t border-slate-800 flex justify-end space-x-4">
-             <button className="px-6 py-2.5 rounded-xl font-bold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors border border-slate-700 hover:border-slate-600">
-                Request Documents
-             </button>
-             <button className="px-6 py-2.5 rounded-xl font-bold text-sm bg-emerald-500 hover:bg-emerald-400 text-slate-900 transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-                Override & Approve
-             </button>
-          </div>
-       </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!isLocked && (
+            <>
+              <button
+                onClick={() => onAction(data.userId, "REQUEST_REUPLOAD")}
+                disabled={actionLoading}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              >
+                Request Re-upload
+              </button>
+              <button
+                onClick={() => onAction(data.userId, "APPROVE")}
+                disabled={actionLoading}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                Approve & Continue
+              </button>
+            </>
+          )}
+          {isLocked && (
+            <button
+              onClick={() => onAction(data.userId, "REJECT")}
+              disabled={actionLoading}
+              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+            >
+              Confirm Lock & Notify
+            </button>
+          )}
+        </div>
+      </div>
     </motion.div>
+  );
+}
+
+function LayerCard({ title, text, tone }: { title: string; text: string; tone: "rose" | "amber" | "indigo" | "emerald" }) {
+  const styles =
+    tone === "rose"
+      ? "border-rose-200 bg-rose-50 text-rose-700"
+      : tone === "amber"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-indigo-200 bg-indigo-50 text-indigo-700";
+  return (
+    <div className={`rounded-xl border p-4 ${styles}`}>
+      <p className="text-xs font-semibold uppercase tracking-wider">{title}</p>
+      <p className="mt-2 text-sm leading-relaxed">{text}</p>
+    </div>
   );
 }

@@ -1,141 +1,189 @@
-# SPARC-Agent
+# SPARC-Agent: Current System Execution Guide
 
-AI-driven, stateful multi-agent platform for student-finance onboarding, document fraud prevention, eligibility scoring, and disbursal readiness.
+This README describes what the app is doing **right now** based on current frontend and backend code paths.
 
-## Overview
+## Project Purpose
 
-SPARC helps students who may lack traditional credit proof by using alternative data, explainable fraud checks, and human-in-the-loop escalation when risk is uncertain.
+SPARC is a student-finance workflow platform with:
+- document ingestion,
+- fraud detection and trust scoring,
+- eligibility scoring,
+- scholarship/lender disbursal flow,
+- admin review capability for escalations,
+- Firebase-based state persistence.
 
-Core capabilities:
-- Multi-agent orchestration with persistent journey state.
-- 4-layer fraud prevention with trust score output.
-- Admin escalation review workflow for medium/high risk cases.
-- Bank details tokenization flow for disbursal readiness.
-- Full audit trail for compliance and explainability.
-
-## Architecture
+## Current Runtime Architecture
 
 ```mermaid
 graph TD
-    S[Student PWA - React] --> B[FastAPI Backend]
-    A[Admin Portal - React] --> B
+    S1[Student Frontend - Static SignLingo HTML/JS] --> B[FastAPI Backend]
+    S2[Student Frontend - React app in src (present but not mounted)] --> B
+    A[Admin Frontend - React] --> B
     B --> O[LangGraph Orchestrator]
-    O --> D[Document + Fraud Agent]
-    O --> E[Eligibility Agent]
-    O --> M[Scholarship/Disbursal Agent]
+    O --> D[Document + Fraud]
+    O --> E[Eligibility]
+    O --> M[Scholarship]
+    M --> L[Mock Lender API]
     D --> F[(Firestore)]
     E --> F
     M --> F
+    B --> FS[Firebase Storage cleanup]
 ```
 
-### Key backend modules
-- `backend/agents/orchestrator.py`: routes workflow, handles journey transitions.
-- `backend/agents/document.py`: document intelligence + fraud-layer integration.
-- `backend/agents/fraud_detection.py`: validation, fuzzy matching, risk scoring.
-- `backend/routers/lender.py`: bank details and disbursal-related APIs.
-- `backend/main.py`: API app entry and routing.
+## What Is Active vs Present
 
-## Fraud Prevention System (4 Layers)
+### Active in `frontend-student`
+- `frontend-student/index.html` is currently a static SignLingo page.
+- It loads:
+  - `/css/styles.css`
+  - `/js/app.js`
+- It uses webcam + MediaPipe + WebSocket prediction flow.
 
-### Layer 1: Format validation
-- Aadhaar checksum validation (Verhoeff).
-- PAN format validation (NSDL-style checks).
-- Utility account format checks.
-- Hard invalids can be auto-rejected quickly.
+### Present but not mounted in `frontend-student`
+- Full React student app exists under `frontend-student/src`.
+- Since current `index.html` has no React root mount and no `type="module" src="/src/main.tsx"`, React student dashboard flow is currently disconnected from runtime.
 
-### Layer 2: Cross-document matching
-- Fuzzy name matching across Aadhaar/PAN/Utility.
-- Fuzzy address matching for consistency.
-- Threshold-based penalties for mismatch patterns.
+### Active in `frontend-admin`
+- Admin frontend is a normal Vite React app and is mounted from `frontend-admin/src/main.tsx`.
 
-### Layer 3: Vision-based document analysis
-- Blur scoring.
-- Tampering/forgery signal checks.
-- Readability and security feature checks (for supported docs).
+## Backend APIs and What They Do
 
-### Layer 4: Risk scoring and action routing
-- Aggregates prior layer signals into a trust score (0-100).
-- Default decision matrix:
-  - `85-100`: Auto-approve (low risk)
-  - `70-84`: Manual review (medium risk)
-  - `50-69`: Manual review (high risk)
-  - `0-49`: Auto-reject (critical risk)
+## Health and state
+- `GET /health`
+  - service health and environment information.
+- `GET /api/state/{user_id}`
+  - returns saved journey state; initializes default state if missing.
 
-### Typical performance targets
-- End-to-end detection: ~10-20 seconds per application.
-- High auto-approval with low manual-review burden.
-- Complete audit trail for every decision.
+## Adaptive document collection
+- `GET /api/documents/next-request/{user_id}`
+  - computes next best document request and progress.
+- `GET /api/documents/collection-progress/{user_id}`
+  - returns collection completion metrics.
 
-## Journey and Escalation Flow
+## Orchestration
+- `POST /api/orchestrate`
+  - triggers LangGraph pipeline for document -> fraud -> eligibility -> scholarship/disbursal.
+  - persists updated state to Firestore.
+  - attempts storage cleanup for user docs.
 
-1. Student uploads documents.
-2. Orchestrator runs document + fraud checks.
-3. System computes trust score and risk level.
-4. Outcome:
-   - Low risk: continue to eligibility/disbursal flow.
-   - Medium/high risk: send to admin escalation panel.
-   - Critical risk: fraud lockout/reject path.
-5. Admin can approve/reject/escalate for more docs; decision is logged.
+## Lender routes (mounted under `/api/lender`)
+- `POST /api/lender/v1/disburse`
+  - mock lender decision path using `alt_score` and randomized timeout behavior.
+- `POST /api/lender/v1/bank-details`
+  - saves tokenized/masked bank account details.
+- `GET /api/lender/v1/bank-details/{user_id}`
+  - returns bank details in masked/tokenized form.
 
-## Admin Escalation Panel (What it includes)
+## End-to-End Execution Flow (Backend)
 
-- Pending queue sorted by risk and recency.
-- Case detail with:
-  - Trust score and fraud flags.
-  - Layer-by-layer breakdown.
-  - Document previews and AI notes.
-  - Audit trail context.
-- Admin actions:
-  - Approve
-  - Reject
-  - Request more documents
-- On approval, journey resumes to downstream eligibility/disbursal steps.
+1. Frontend sends `POST /api/orchestrate` with user and documents.
+2. Backend loads current state from Firestore (`journey_states/{user_id}`).
+3. Orchestrator invokes `document_intelligence_node`.
+4. Document node performs layered fraud checks and sets `journeyStatus`.
+5. Router logic decides:
+   - if `FRAUD_LOCKOUT` -> stop.
+   - if `HITL_ESCALATION` -> stop.
+   - if `DOC_VERIFICATION_COMPLETE` and `trustScore >= 85` -> continue to eligibility.
+6. Eligibility node computes alternative credit score:
+   - score `< 400` -> `HITL_ESCALATION` and stop.
+   - otherwise -> `ELIGIBILITY_SCORED` and continue.
+7. Scholarship node performs matching and calls lender disburse endpoint.
+8. Final state and audit trail are persisted to Firestore.
+9. Backend attempts to delete uploaded blobs under `documents/{user_id}/` from Firebase Storage.
 
-## Bank Details Tokenization
+## Journey Status Values Observed
 
-### Why this design
-- Avoids storing full account numbers directly.
-- Uses tokenized identifiers and masked account display (`XXXX1234`).
-- Supports fintech-style security posture and cleaner compliance story.
+- `START` (initial default)
+- `DOC_VERIFICATION_COMPLETE`
+- `HITL_ESCALATION`
+- `FRAUD_LOCKOUT`
+- `ELIGIBILITY_SCORED`
+- `DISBURSAL_PENDING`
+- `DISBURSAL_COMPLETE`
+- `DISBURSAL_FAILED`
 
-### Data captured
-- Account holder name
-- Bank name
-- Masked account suffix
-- `tokenized_account_id`
-- Verification timestamp
+Note: runtime state uses `journeyStatus`, persistence uses `journeyState`; backend maps between them during orchestration.
 
-### API endpoints
-- `POST /api/lender/v1/bank-details`: store tokenized bank details.
-- `GET /api/lender/v1/bank-details/{user_id}`: fetch masked verified details.
-- `POST /api/lender/v1/disburse`: should verify bank details before transfer.
+## Fraud System (Implemented Layers)
 
-### Storage pattern
-- Journey state stores metadata/flags.
-- Sensitive bank-record document stored in separate collection (`student_bank_accounts`) with restricted access.
+### Layer 1: format checks
+- Aadhaar checksum validation.
+- PAN format validation.
+- Utility/account format validation.
 
-## Security and Compliance Notes
+### Layer 2: cross-document consistency
+- fuzzy name matching.
+- fuzzy address matching.
 
-- No full bank account number persistence in normal flow.
-- Masked outputs only for retrieval endpoints.
-- Layered fraud defense lowers spoofing risk.
-- Human-in-the-loop review for ambiguous cases.
-- Audit logs preserve explainability for review and governance.
+### Layer 3: vision analysis
+- blur/tampering/readability/security cues.
 
-## Testing Checklist
+### Layer 4: risk aggregation
+- trust score (0-100) and risk-level based routing.
+- threshold behavior used by orchestrator:
+  - >=85 continues automatically,
+  - 50-84 generally escalates,
+  - <50 lockout path.
 
-- Fraud:
-  - Valid docs pass and produce high trust scores.
-  - Clear checksum/format failures reject correctly.
-  - Name/address variance triggers review where expected.
-  - Vision signals impact risk score as designed.
-- Bank details:
-  - Form validation catches bad inputs.
-  - Tokenized details save and fetch correctly.
-  - Disbursal blocks when bank details are missing.
-  - No sensitive account data leaks in logs/responses.
+## Frontend Execution Flows
 
-## Run Locally
+## Student frontend (currently active static flow)
+
+Current static app behavior:
+1. Loads letters from `GET http://localhost:8000/config`.
+2. Opens WebSocket `ws://localhost:8000/ws/predict`.
+3. Captures webcam frames, extracts landmarks via MediaPipe.
+4. Sends landmarks to websocket.
+5. Receives prediction/confidence and updates gamified UI.
+
+This is independent of the student document/orchestration React flow.
+
+## Student frontend (React flow in code, currently disconnected)
+
+If mounted, the React student flow is:
+1. Firebase Google login.
+2. Fetch next document request from backend.
+3. Upload documents to Firebase Storage.
+4. Call `/api/orchestrate` when minimum progress is reached.
+5. Show lockout panel on fraud lockout; otherwise currently limited post-success UI.
+
+## Admin frontend (active React flow)
+
+1. Firebase Google login.
+2. Local role gate via allowed admin email list.
+3. Escalation dashboard loads hardcoded `mockEscalations` (not backend data).
+4. Escalation panel supports:
+   - PII masking toggle,
+   - plain-language vs technical reasoning toggle,
+   - visual review panels and action buttons.
+5. Action buttons are currently UI-only (no backend mutation call).
+
+## Persistence Model
+
+## Firestore collections
+- `journey_states/{user_id}`
+  - canonical user journey and profile data.
+- `student_bank_accounts/{user_id}`
+  - masked/tokenized bank account records.
+
+## Storage usage
+- uploaded files are read by agents and then cleanup is attempted by backend.
+
+## Important Current Gaps / Mismatches
+
+- Student runtime mismatch:
+  - static SignLingo HTML is active, while React student app is not mounted.
+- Admin data source mismatch:
+  - admin UI shows mock escalation data, not live backend data.
+- Adaptive docs data-shape mismatch:
+  - parts of adaptive collection expect `doc_type`, while persisted docs may use `type`.
+- Orchestrate response handling mismatch in React student:
+  - frontend checks top-level `journeyStatus`, backend returns nested `newState` payload.
+- Disbursal validation gap:
+  - disburse endpoint does not currently enforce bank-details existence check.
+- Request `event` field in orchestrate payload is currently not used for branching logic.
+
+## How to Run
 
 ### Backend
 ```bash
@@ -146,7 +194,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Student frontend
+### Student frontend (current static runtime)
 ```bash
 cd frontend-student
 npm install
@@ -159,3 +207,15 @@ cd frontend-admin
 npm install
 npm run dev
 ```
+
+## Quick Verification Checklist
+
+- Backend:
+  - `GET /health` returns healthy response.
+  - `POST /api/orchestrate` writes state into Firestore.
+- Student:
+  - static SignLingo page renders and camera opens.
+  - websocket prediction stream is active.
+- Admin:
+  - admin login gate works.
+  - escalation panels render with mask/explainability toggles.

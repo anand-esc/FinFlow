@@ -1,140 +1,964 @@
-import { useState } from 'react';
-import type { ReactNode } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldCheck, GraduationCap, ArrowRight, ScanLine, LogOut } from 'lucide-react';
-import { TrustGauge } from './components/TrustGauge';
-import { DocumentUploadCard } from './components/DocumentUploadCard';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { StudentLogin } from './components/StudentLogin';
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  Camera,
+  CheckCircle2,
+  ChevronLeft,
+  GraduationCap,
+  Landmark,
+  Loader2,
+  LogOut,
+  RefreshCcw,
+  ShieldCheck,
+  User,
+  Users,
+  XCircle,
+} from "lucide-react";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { StudentLogin } from "./components/StudentLogin";
+import { storage } from "./lib/firebase";
+
+type WizardStep = "home" | "documents" | "profile" | "bank" | "review" | "result";
+type DocType = "aadhaar" | "utility" | "pan";
+
+type CapturedDoc = {
+  type: DocType;
+  label: string;
+  blob?: Blob;
+  preview?: string;
+  uploadedUrl?: string;
+  uploadStatus: "idle" | "ready" | "uploading" | "uploaded" | "failed" | "cancelled";
+  uploadError?: string;
+};
+type OCRField = { key: string; label: string; value: string; confidence: number };
+
+type ProfileState = {
+  fullName: string;
+  dateOfBirth: string;
+  phone: string;
+  city: string;
+  educationLevel: string;
+  monthlyHouseholdIncome: string;
+  cibilScore: string;
+};
+
+type BankState = {
+  ownerType: "self" | "parent";
+  accountHolderName: string;
+  bankName: string;
+  accountLast4: string;
+  ifscCode: string;
+};
+
+const DOC_FLOW: Array<{ type: DocType; label: string; subtitle: string }> = [
+  { type: "aadhaar", label: "Aadhaar Card", subtitle: "Government identity verification" },
+  { type: "utility", label: "Utility Bill", subtitle: "Current address consistency check" },
+  { type: "pan", label: "PAN Card", subtitle: "Financial identity and tax profile anchor" },
+];
+
+const INITIAL_PROFILE: ProfileState = {
+  fullName: "",
+  dateOfBirth: "",
+  phone: "",
+  city: "",
+  educationLevel: "",
+  monthlyHouseholdIncome: "",
+  cibilScore: "",
+};
+
+const INITIAL_BANK: BankState = {
+  ownerType: "self",
+  accountHolderName: "",
+  bankName: "",
+  accountLast4: "",
+  ifscCode: "",
+};
+
+function toDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function generateTokenizedId() {
+  const seed = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `bank_tok_${seed}`;
+}
+
+function detectImageQuality(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { blurScore: 0, glarePercent: 0, ok: true };
+  const { width, height } = canvas;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let edgeSum = 0;
+  let glarePixels = 0;
+  let count = 0;
+
+  for (let y = 1; y < height - 1; y += 4) {
+    for (let x = 1; x < width - 1; x += 4) {
+      const i = (y * width + x) * 4;
+      const l = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+
+      const ix = (y * width + (x + 1)) * 4;
+      const iy = ((y + 1) * width + x) * 4;
+      const lx = 0.299 * data[ix] + 0.587 * data[ix + 1] + 0.114 * data[ix + 2];
+      const ly = 0.299 * data[iy] + 0.587 * data[iy + 1] + 0.114 * data[iy + 2];
+      edgeSum += Math.abs(lx - l) + Math.abs(ly - l);
+
+      if (l > 245) glarePixels += 1;
+      count += 1;
+    }
+  }
+
+  const blurScore = edgeSum / Math.max(1, count);
+  const glarePercent = (glarePixels / Math.max(1, count)) * 100;
+  // Calibrated for mobile camera snapshots: keep warnings, avoid false hard-blocks.
+  const ok = blurScore > 4 && glarePercent < 30;
+  return { blurScore: Number(blurScore.toFixed(1)), glarePercent: Number(glarePercent.toFixed(1)), ok };
+}
+
+async function compressImage(blob: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(blob);
+  const maxW = 1280;
+  const ratio = Math.min(1, maxW / bmp.width);
+  const w = Math.floor(bmp.width * ratio);
+  const h = Math.floor(bmp.height * ratio);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return blob;
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.76));
+  return compressed || blob;
+}
 
 function StudentDashboard() {
-  const [score, setScore] = useState(300);
-  const [isOrchestrating, setIsOrchestrating] = useState(false);
-  const [docStatuses, setDocStatuses] = useState({
-     aadhaar: 'IDLE',
-     utility: 'IDLE'
+  const { user, logout } = useAuth();
+  const [step, setStep] = useState<WizardStep>("home");
+  const [docs, setDocs] = useState<CapturedDoc[]>(
+    DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" }))
+  );
+  const [docIndex, setDocIndex] = useState(0);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [profile, setProfile] = useState<ProfileState>(INITIAL_PROFILE);
+  const [bank, setBank] = useState<BankState>(INITIAL_BANK);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resultMessage, setResultMessage] = useState("");
+  const [resultStatus, setResultStatus] = useState<"success" | "warning" | "error">("success");
+  const [ocrByDoc, setOcrByDoc] = useState<Record<DocType, { confidence: number; fields: OCRField[] }>>({
+    aadhaar: { confidence: 0, fields: [] },
+    utility: { confidence: 0, fields: [] },
+    pan: { confidence: 0, fields: [] },
   });
-  const [docUrls, setDocUrls] = useState({
-     aadhaar: '',
-     utility: ''
+  const [qualityByDoc, setQualityByDoc] = useState<Record<DocType, { blurScore: number; glarePercent: number; ok: boolean }>>({
+    aadhaar: { blurScore: 0, glarePercent: 0, ok: false },
+    utility: { blurScore: 0, glarePercent: 0, ok: false },
+    pan: { blurScore: 0, glarePercent: 0, ok: false },
   });
-  const { logout, user } = useAuth();
+  const [reducedMotion, setReducedMotion] = useState(false);
 
-  const triggerOrchestrator = async () => {
-     setIsOrchestrating(true);
-     try {
-         const res = await fetch("http://localhost:8000/api/orchestrate", {
-             method: "POST",
-             headers: { "Content-Type": "application/json" },
-             body: JSON.stringify({
-                 user_id: user?.uid || "anonymous_student",
-                 event: "DOCUMENTS_UPLOADED",
-                 payload: {
-                    new_documents: [
-                       { doc_type: "aadhaar", url: docUrls.aadhaar }, 
-                       { doc_type: "utility", alt_points: 385, url: docUrls.utility }
-                    ]
-                 }
-             })
-         });
-         const data = await res.json();
-         console.log("Agent Data:", data);
-     } catch (e) {
-         console.error(e);
-     }
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const uploadTaskRef = useRef<ReturnType<typeof uploadBytesResumable> | null>(null);
+
+  const currentDocConfig = DOC_FLOW[docIndex];
+  const currentDoc = docs[docIndex];
+  const currentQuality = qualityByDoc[currentDocConfig.type];
+  const completedDocs = docs.filter((d) => d.blob).length;
+  const progressPercent = Math.round((completedDocs / DOC_FLOW.length) * 100);
+
+  const canContinueToProfile = useMemo(() => docs.every((d) => Boolean(d.blob)), [docs]);
+
+  const profileComplete = Boolean(
+    profile.fullName.trim() &&
+      profile.dateOfBirth &&
+      profile.phone.trim().length >= 10 &&
+      profile.city.trim() &&
+      profile.educationLevel &&
+      profile.monthlyHouseholdIncome &&
+      profile.cibilScore
+  );
+
+  const bankComplete = Boolean(
+    bank.accountHolderName.trim() &&
+      bank.bankName.trim() &&
+      /^\d{4}$/.test(bank.accountLast4) &&
+      /^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(bank.ifscCode.trim().toUpperCase())
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(media.matches);
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    media.addEventListener("change", handler);
+    return () => {
+      media.removeEventListener("change", handler);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  const startCamera = async () => {
+    setCameraError("");
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraActive(true);
+    } catch (_err) {
+      setCameraError("Unable to access camera. Allow camera permission and try again.");
+      setCameraActive(false);
+    }
   };
 
-  const handleUploadComplete = (type: 'aadhaar' | 'utility', url: string) => {
-     setDocUrls(prev => ({ ...prev, [type]: url }));
-     setDocStatuses(prev => ({ ...prev, [type]: 'PROCESSING' }));
-     setTimeout(() => {
-        setDocStatuses(prev => ({ ...prev, [type]: 'VERIFIED' }));
-        setScore(prev => prev + (type === 'utility' ? 385 : 115));
-     }, 1000);
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
   };
+
+  const captureDoc = async () => {
+    if (!videoRef.current || !canvasRef.current || !currentDocConfig) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const rawBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!rawBlob) return;
+    const blob = await compressImage(rawBlob);
+    const quality = detectImageQuality(canvas);
+    setQualityByDoc((prev) => ({ ...prev, [currentDocConfig.type]: quality }));
+    if (!quality.ok) {
+      setCameraError(`Image quality warning: blur ${quality.blurScore}, glare ${quality.glarePercent}%. Please retake.`);
+    }
+    const preview = await toDataUrl(blob);
+    setDocs((prev) =>
+      prev.map((item, idx) =>
+        idx === docIndex
+          ? { ...item, blob, preview, type: currentDocConfig.type, uploadStatus: "ready", uploadError: undefined }
+          : item
+      )
+    );
+    try {
+      const res = await fetch("http://localhost:8000/api/ocr/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_type: currentDocConfig.type,
+          image_base64: preview,
+          hints: {
+            fullName: profile.fullName,
+            city: profile.city,
+            dateOfBirth: profile.dateOfBirth,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data?.status === "success") {
+        setOcrByDoc((prev) => ({
+          ...prev,
+          [currentDocConfig.type]: {
+            confidence: Number(data.confidence || 0),
+            fields: (data.fields || []).map((f: OCRField) => ({ ...f, value: String(f.value || "") })),
+          },
+        }));
+      }
+    } catch {
+      // keep flow resilient
+    }
+    stopCamera();
+  };
+
+  const goNextDoc = () => {
+    if (docIndex < DOC_FLOW.length - 1) {
+      setDocIndex((p) => p + 1);
+      setCameraError("");
+      return;
+    }
+    setStep("profile");
+  };
+
+  const goPrevDoc = () => {
+    if (docIndex > 0) {
+      setDocIndex((p) => p - 1);
+      setCameraError("");
+      return;
+    }
+    setStep("home");
+  };
+
+  const updateDocStatus = (docType: DocType, patch: Partial<CapturedDoc>) => {
+    setDocs((prev) => prev.map((doc) => (doc.type === docType ? { ...doc, ...patch } : doc)));
+  };
+
+  const uploadSingleDoc = async (doc: CapturedDoc) => {
+    if (!user || !doc.blob) throw new Error(`Missing blob for ${doc.label}`);
+
+    updateDocStatus(doc.type, { uploadStatus: "uploading", uploadError: undefined });
+
+    const storageRef = ref(storage, `documents/${user.uid}/${Date.now()}_${doc.type}.jpg`);
+    const task = uploadBytesResumable(storageRef, doc.blob, { contentType: "image/jpeg" });
+    uploadTaskRef.current = task;
+
+    const url = await new Promise<string>((resolve, reject) => {
+      task.on(
+        "state_changed",
+        () => {},
+        (error) => reject(error),
+        async () => {
+          const uploadedUrl = await getDownloadURL(task.snapshot.ref);
+          resolve(uploadedUrl);
+        }
+      );
+    });
+
+    updateDocStatus(doc.type, { uploadStatus: "uploaded", uploadedUrl: url, uploadError: undefined });
+    return { doc_type: doc.type, url };
+  };
+
+  const submitFullJourney = async () => {
+    if (!user) return;
+    setIsSubmitting(true);
+    setStep("result");
+    try {
+      const uploadedDocs: Array<{ doc_type: DocType; url: string }> = [];
+      for (const doc of docs) {
+        if (!doc.blob) {
+          throw new Error(`Missing snapshot for ${doc.label}`);
+        }
+        const uploaded = await uploadSingleDoc(doc);
+        uploadedDocs.push(uploaded);
+      }
+
+      const bankPayload = {
+        user_id: user.uid,
+        bankDetails: {
+          accountHolderName: bank.accountHolderName,
+          bankName: bank.bankName,
+          maskedAccount: `XXXX${bank.accountLast4}`,
+          tokenized_account_id: generateTokenizedId(),
+          verifiedAt: new Date().toISOString(),
+        },
+      };
+
+      await fetch("http://localhost:8000/api/lender/v1/bank-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bankPayload),
+      });
+
+      const res = await fetch("http://localhost:8000/api/orchestrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.uid,
+          event: "DOCUMENTS_UPLOADED",
+          payload: {
+            new_documents: uploadedDocs,
+            student_profile: profile,
+            bank_owner_type: bank.ownerType,
+            declared_cibil: profile.cibilScore,
+          },
+        }),
+      });
+      const data = await res.json();
+      const state = data?.newState || {};
+      const status = state.journeyState || state.journeyStatus || "UNKNOWN";
+
+      if (status === "FRAUD_LOCKOUT") {
+        setResultStatus("error");
+        setResultMessage("Security review flagged this application for manual intervention. Our team will contact you shortly.");
+      } else if (status === "HITL_ESCALATION") {
+        setResultStatus("warning");
+        setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
+      } else {
+        setResultStatus("success");
+        setResultMessage("Application submitted successfully. You are now progressing to eligibility and funding steps.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown upload error";
+      console.error(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        const pendingDoc = docs.find((d) => d.uploadStatus === "uploading")?.type;
+        if (pendingDoc) updateDocStatus(pendingDoc, { uploadStatus: "failed", uploadError: message });
+      }
+      setResultStatus("error");
+      setResultMessage("Submission failed due to a network or backend issue. Please retry once.");
+    } finally {
+      uploadTaskRef.current = null;
+      setIsSubmitting(false);
+    }
+  };
+
+  const retryFailedUpload = async (docType: DocType) => {
+    if (!user) return;
+    const target = docs.find((d) => d.type === docType);
+    if (!target) return;
+    try {
+      await uploadSingleDoc(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Retry failed";
+      updateDocStatus(docType, { uploadStatus: "failed", uploadError: message });
+    }
+  };
+
+  const cancelCurrentUpload = () => {
+    if (uploadTaskRef.current) {
+      uploadTaskRef.current.cancel();
+      const uploadingDoc = docs.find((d) => d.uploadStatus === "uploading");
+      if (uploadingDoc) {
+        updateDocStatus(uploadingDoc.type, {
+          uploadStatus: "cancelled",
+          uploadError: "Upload cancelled by user.",
+        });
+      }
+    }
+  };
+
+  const clearCurrentCapture = () => {
+    setDocs((prev) =>
+      prev.map((item, idx) =>
+        idx === docIndex
+          ? {
+              ...item,
+              blob: undefined,
+              preview: undefined,
+              uploadedUrl: undefined,
+              uploadStatus: "idle",
+              uploadError: undefined,
+            }
+          : item
+      )
+    );
+  };
+
+  const extractionPreview = useMemo(() => {
+    if (!currentDocConfig || !currentDoc?.preview) return [];
+    if (currentDocConfig.type === "aadhaar") {
+      return [
+        { key: "Name", value: profile.fullName || "Detected from card image" },
+        { key: "DOB", value: profile.dateOfBirth || "Extracted date" },
+        { key: "Status", value: "Identity structure recognized" },
+      ];
+    }
+    if (currentDocConfig.type === "utility") {
+      return [
+        { key: "City", value: profile.city || "Address line detected" },
+        { key: "Bill Type", value: "Utility statement" },
+        { key: "Status", value: "Address fields matched format" },
+      ];
+    }
+    return [
+      { key: "PAN", value: "Pattern validated from image" },
+      { key: "Holder", value: profile.fullName || "Name token detected" },
+      { key: "Status", value: "Tax-ID structure identified" },
+    ];
+  }, [currentDocConfig, currentDoc?.preview, profile.fullName, profile.dateOfBirth, profile.city]);
+
+  const trustSimulation = useMemo(() => {
+    let score = 320;
+    score += completedDocs * 120;
+    if (profile.educationLevel) score += 60;
+    if (profile.city) score += 20;
+    if (profile.phone.length >= 10) score += 20;
+    if (bankComplete) score += 70;
+    const cibil = Number(profile.cibilScore || 0);
+    if (cibil > 0) score += Math.max(0, Math.min(180, Math.round((cibil - 300) * 0.3)));
+    return Math.max(300, Math.min(900, score));
+  }, [completedDocs, profile.educationLevel, profile.city, profile.phone, bankComplete, profile.cibilScore]);
+
+  const stepOrder: WizardStep[] = ["home", "documents", "profile", "bank", "review", "result"];
+  const activeStepIndex = stepOrder.indexOf(step);
 
   return (
-    <div className="min-h-screen bg-[#060913] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30">
-      <header className="px-6 py-4 flex items-center justify-between border-b border-slate-800/40 bg-[#060913]/60 backdrop-blur-2xl sticky top-0 z-50">
-         <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-400 p-[1px] shadow-lg shadow-indigo-500/20">
-                <div className="w-full h-full bg-[#0B0F19] rounded-xl flex items-center justify-center">
-                    <GraduationCap className="w-5 h-5 text-emerald-400" />
-                </div>
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200/60 via-slate-50 to-slate-100" />
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400">
+              <GraduationCap className="h-5 w-5 text-white" />
             </div>
             <div>
-                <h1 className="text-lg font-bold tracking-tight text-white leading-tight">SPARC</h1>
-                <p className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">Agentic Finance</p>
+              <p className="text-sm font-semibold tracking-wide text-slate-900">SPARC Student Flow</p>
+              <p className="text-xs text-slate-500">Simple. Secure. Step-by-step onboarding.</p>
             </div>
-         </div>
-         <div className="flex items-center space-x-3">
-            <div className="px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-semibold text-emerald-400 hidden sm:flex items-center uppercase tracking-wider backdrop-blur-sm shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-               <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-               Bank Grade
-            </div>
-            <button onClick={logout} className="p-2 rounded-full bg-slate-800/50 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Sign Out">
-               <LogOut className="w-4 h-4"/>
-            </button>
-         </div>
+          </div>
+          <button
+            onClick={logout}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            <span className="inline-flex items-center gap-2">
+              <LogOut className="h-4 w-4" /> Sign out
+            </span>
+          </button>
+        </div>
       </header>
-      
-      <main className="flex-1 w-full max-w-md mx-auto p-6 flex flex-col pt-8 pb-24 relative">
-          <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-[#060913] to-[#060913] z-[-1]"></div>
 
-          <TrustGauge score={score} />
-
-          <div className="mb-6 px-1">
-             <h2 className="text-2xl font-bold text-white tracking-tight mb-2">Prove your consistency.</h2>
-             <p className="text-slate-400 text-sm leading-relaxed">
-               No formal income required. Upload standard alternative data and watch the risk-assessor build your profile in real-time.
-             </p>
+      <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">
+        <div className="sticky top-[72px] z-20 mb-5 rounded-xl border border-slate-200 bg-white/90 p-3 backdrop-blur lg:hidden">
+          <div className="mb-2 flex items-center justify-between text-xs">
+            <span className="font-semibold text-slate-700">Step {Math.max(activeStepIndex + 1, 1)} / {stepOrder.length}</span>
+            <span className="text-slate-500 capitalize">{step}</span>
           </div>
-
-          <div className="space-y-4 mb-10">
-             <DocumentUploadCard 
-                title="Aadhaar Card"
-                subtitle="Government ID Verification"
-                status={docStatuses.aadhaar as any}
-                onUploadComplete={(url) => handleUploadComplete('aadhaar', url)}
-             />
-             <DocumentUploadCard 
-                title="Recent Utility Bill"
-                subtitle="Electricity, Gas, or Water (Alt-Data)"
-                status={docStatuses.utility as any}
-                onUploadComplete={(url) => handleUploadComplete('utility', url)}
-             />
+          <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+            <motion.div
+              className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400"
+              animate={{ width: `${((Math.max(activeStepIndex, 0) + 1) / stepOrder.length) * 100}%` }}
+              transition={{ duration: 0.4 }}
+            />
           </div>
+        </div>
 
-          <AnimatePresence>
-             {docStatuses.aadhaar === 'VERIFIED' && docStatuses.utility === 'VERIFIED' && !isOrchestrating && (
-                <motion.div 
-                   initial={{ opacity: 0, y: 20 }}
-                   animate={{ opacity: 1, y: 0 }}
-                   exit={{ opacity: 0, scale: 0.95 }}
-                   className="mt-auto pt-6"
+        <div className="grid items-start gap-6 lg:grid-cols-[240px_1fr]">
+          <aside className="sticky top-[92px] hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Application Steps</p>
+            <div className="space-y-2">
+              {stepOrder.map((s, i) => {
+                const done = i < activeStepIndex;
+                const active = s === step;
+                return (
+                  <div
+                    key={s}
+                    className={`rounded-lg border px-3 py-2 text-sm capitalize ${
+                      active
+                        ? "border-indigo-400 bg-indigo-500/20 text-indigo-200"
+                        : done
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                        : "border-slate-200 bg-slate-50 text-slate-500"
+                    }`}
+                  >
+                    {i + 1}. {s}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={{ opacity: 0, x: 36 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -28 }}
+              transition={{ duration: reducedMotion ? 0 : 0.35, ease: "easeInOut" }}
+            >
+        {step === "home" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+              <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                <ShieldCheck className="h-4 w-4" /> Multi-layer trust verification
+              </p>
+              <h1 className="text-4xl font-extrabold leading-tight text-slate-900">Education finance onboarding, beautifully guided.</h1>
+              <p className="mt-4 max-w-2xl text-slate-600">
+                In 5 simple steps, you will verify identity, capture required documents, share profile details, and set disbursal bank preferences
+                (self or parent). Our fraud and eligibility engines run after submission.
+              </p>
+              <button
+                onClick={() => setStep("documents")}
+                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+              >
+                Start Application <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {[
+                { title: "1. Camera Capture", text: "Snap Aadhaar, utility bill, and PAN one by one with guided prompts." },
+                { title: "2. Profile Inputs", text: "Share key personal and education basics needed for score computation." },
+                { title: "3. Bank Setup", text: "Choose self/parent account and complete secure tokenized bank setup." },
+              ].map((card) => (
+                <div key={card.title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-900">{card.title}</p>
+                  <p className="mt-2 text-sm text-slate-600">{card.text}</p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        )}
+
+        {step === "documents" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900">Document Capture</p>
+                <p className="text-xs font-semibold text-emerald-300">{progressPercent}% completed</p>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400" style={{ width: `${progressPercent}%` }} />
+              </div>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                  Step {docIndex + 1} of {DOC_FLOW.length}
+                </p>
+                <h2 className="mt-2 text-2xl font-bold text-slate-900">{currentDocConfig.label}</h2>
+                <p className="mt-1 text-sm text-slate-600">{currentDocConfig.subtitle}</p>
+                <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                  Live trust simulation: <span className="font-bold">{trustSimulation}/900</span>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {!cameraActive && (
+                    <button
+                      onClick={startCamera}
+                      className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400"
+                    >
+                      <Camera className="h-4 w-4" /> Open Camera
+                    </button>
+                  )}
+                  {cameraActive && (
+                    <button
+                      onClick={captureDoc}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400"
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Snap & Save
+                    </button>
+                  )}
+                  {cameraActive && (
+                    <button
+                      onClick={stopCamera}
+                      className="ml-2 inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
+                    >
+                      Stop Camera
+                    </button>
+                  )}
+                  {currentDoc?.preview && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={startCamera}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
+                      >
+                        <RefreshCcw className="h-4 w-4" /> Retake
+                      </button>
+                      <button
+                        onClick={clearCurrentCapture}
+                        className="inline-flex items-center gap-2 rounded-xl border border-rose-300 px-4 py-2.5 text-sm font-semibold text-rose-700"
+                      >
+                        <XCircle className="h-4 w-4" /> Cancel Capture
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {cameraError && <p className="mt-3 text-sm text-rose-300">{cameraError}</p>}
+                {currentDoc?.preview && !currentQuality.ok && (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                    Quality gate active: recapture is required to continue.
+                  </div>
+                )}
+
+                <div className="mt-6 flex gap-2">
+                  <button onClick={goPrevDoc} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </button>
+                  <button
+                    onClick={goNextDoc}
+                    disabled={!currentDoc?.blob}
+                    className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next Step <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="aspect-[4/3] overflow-hidden rounded-xl border border-slate-300 bg-black">
+                  <video ref={videoRef} className={`h-full w-full object-cover ${cameraActive ? "block" : "hidden"}`} playsInline muted />
+                  {!cameraActive && currentDoc?.preview && <img src={currentDoc.preview} alt="Captured preview" className="h-full w-full object-cover" />}
+                  {!cameraActive && !currentDoc?.preview && (
+                    <div className="grid h-full place-items-center text-sm text-slate-500">Camera preview will appear here</div>
+                  )}
+                </div>
+                <canvas ref={canvasRef} className="hidden" />
+                <p className="mt-3 text-xs text-slate-500">Capture tip: keep full document inside frame with clear lighting and no glare.</p>
+                {currentDoc?.preview && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">OCR Preview (AI extraction)</p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Confidence: {Math.round((ocrByDoc[currentDocConfig.type]?.confidence || 0) * 100)}%
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {(ocrByDoc[currentDocConfig.type]?.fields?.length
+                        ? ocrByDoc[currentDocConfig.type].fields
+                        : extractionPreview.map((i) => ({ key: i.key, label: i.key, value: i.value, confidence: 0.6 }))
+                      ).map((item) => (
+                        <div key={item.key} className="flex items-center justify-between text-sm">
+                          <span className="text-slate-400">{item.label}</span>
+                          <input
+                            value={item.value}
+                            onChange={(e) =>
+                              setOcrByDoc((prev) => ({
+                                ...prev,
+                                [currentDocConfig.type]: {
+                                  ...prev[currentDocConfig.type],
+                                  fields: prev[currentDocConfig.type].fields.map((f) =>
+                                    f.key === item.key ? { ...f, value: e.target.value } : f
+                                  ),
+                                },
+                              }))
+                            }
+                            className="w-44 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {canContinueToProfile && (
+              <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-700">
+                All mandatory documents captured successfully. Continue to profile details.
+              </div>
+            )}
+          </motion.section>
+        )}
+
+        {step === "profile" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-bold text-slate-900">Student Profile</h2>
+            <p className="mt-1 text-sm text-slate-600">We collect only fields required for risk and eligibility processing.</p>
+            <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+              Live trust simulation: <span className="font-bold">{trustSimulation}/900</span>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Full name" value={profile.fullName} onChange={(e) => setProfile((p) => ({ ...p, fullName: e.target.value }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" type="date" value={profile.dateOfBirth} onChange={(e) => setProfile((p) => ({ ...p, dateOfBirth: e.target.value }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Phone number" value={profile.phone} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="City" value={profile.city} onChange={(e) => setProfile((p) => ({ ...p, city: e.target.value }))} />
+              <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={profile.educationLevel} onChange={(e) => setProfile((p) => ({ ...p, educationLevel: e.target.value }))}>
+                <option value="">Education level</option>
+                <option value="UG">Undergraduate</option>
+                <option value="PG">Postgraduate</option>
+                <option value="Diploma">Diploma</option>
+                <option value="Other">Other</option>
+              </select>
+              <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={profile.monthlyHouseholdIncome} onChange={(e) => setProfile((p) => ({ ...p, monthlyHouseholdIncome: e.target.value }))}>
+                <option value="">Monthly household income</option>
+                <option value="<25k">&lt; 25k</option>
+                <option value="25k-50k">25k - 50k</option>
+                <option value="50k-100k">50k - 100k</option>
+                <option value=">100k">&gt; 100k</option>
+              </select>
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm md:col-span-2" placeholder="CIBIL score (300-900) or 0 if unavailable" value={profile.cibilScore} onChange={(e) => setProfile((p) => ({ ...p, cibilScore: e.target.value }))} />
+            </div>
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setStep("documents")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
+              <button onClick={() => setStep("bank")} disabled={!profileComplete} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900 disabled:opacity-40">Continue</button>
+            </div>
+          </motion.section>
+        )}
+
+        {step === "bank" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-bold text-slate-900">Bank Details Setup</h2>
+            <p className="mt-1 text-sm text-slate-600">Choose whether disbursal account is yours or your parent/guardian's.</p>
+            <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+              Live trust simulation: <span className="font-bold">{trustSimulation}/900</span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => setBank((b) => ({ ...b, ownerType: "self" }))}
+                className={`rounded-xl border px-4 py-3 text-left ${bank.ownerType === "self" ? "border-indigo-400 bg-indigo-500/20" : "border-slate-300 bg-slate-50"}`}
+              >
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800"><User className="h-4 w-4" /> My account</span>
+              </button>
+              <button
+                onClick={() => setBank((b) => ({ ...b, ownerType: "parent" }))}
+                className={`rounded-xl border px-4 py-3 text-left ${bank.ownerType === "parent" ? "border-indigo-400 bg-indigo-500/20" : "border-slate-300 bg-slate-50"}`}
+              >
+                <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800"><Users className="h-4 w-4" /> Parent/Guardian account</span>
+              </button>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Account holder name" value={bank.accountHolderName} onChange={(e) => setBank((b) => ({ ...b, accountHolderName: e.target.value }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Bank name" value={bank.bankName} onChange={(e) => setBank((b) => ({ ...b, bankName: e.target.value }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" maxLength={4} placeholder="Last 4 digits of account number" value={bank.accountLast4} onChange={(e) => setBank((b) => ({ ...b, accountLast4: e.target.value.replace(/\D/g, "") }))} />
+              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm uppercase" placeholder="IFSC (e.g. HDFC0001234)" value={bank.ifscCode} onChange={(e) => setBank((b) => ({ ...b, ifscCode: e.target.value.toUpperCase() }))} />
+            </div>
+            <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-700">
+              Full bank account number is never stored in this app. Only masked account and tokenized references are saved.
+            </div>
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setStep("profile")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
+              <button onClick={() => setStep("review")} disabled={!bankComplete} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900 disabled:opacity-40">Continue</button>
+            </div>
+          </motion.section>
+        )}
+
+        {step === "review" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-bold text-slate-900">Review & Submit</h2>
+            <p className="mt-1 text-sm text-slate-600">Final check before secure upload and orchestration.</p>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Documents</p>
+                <ul className="mt-2 space-y-2 text-sm">
+                  {docs.map((d) => (
+                    <li key={d.type} className="flex items-center justify-between text-slate-700">
+                      <span>{d.label}</span>
+                      <span className={d.blob ? "text-emerald-300" : "text-rose-300"}>{d.blob ? "Captured" : "Missing"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bank Setup</p>
+                <p className="mt-2 text-sm text-slate-700">{bank.ownerType === "self" ? "Your account" : "Parent/Guardian account"}</p>
+                <p className="text-sm text-slate-700">{bank.bankName} • XXXX{bank.accountLast4}</p>
+                <p className="text-sm text-slate-700">{bank.ifscCode}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setStep("bank")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
+              <button
+                onClick={submitFullJourney}
+                className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900"
+              >
+                Submit Application <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.section>
+        )}
+
+        {step === "result" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            {isSubmitting ? (
+              <div className="space-y-3">
+                <Loader2 className="mx-auto h-10 w-10 animate-spin text-indigo-300" />
+                <h2 className="text-2xl font-bold text-slate-900">Submitting securely...</h2>
+                <p className="text-sm text-slate-600">Uploading snapshots, tokenizing bank details, and triggering orchestration.</p>
+                <div className="mx-auto mt-3 max-w-md space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
+                  {docs.map((d) => (
+                    <div key={d.type} className="flex items-center justify-between text-xs">
+                      <span className="capitalize text-slate-700">{d.type}</span>
+                      <span
+                        className={
+                          d.uploadStatus === "uploaded"
+                            ? "text-emerald-300"
+                            : d.uploadStatus === "uploading"
+                            ? "text-indigo-300"
+                            : d.uploadStatus === "failed"
+                            ? "text-rose-300"
+                            : d.uploadStatus === "cancelled"
+                            ? "text-amber-300"
+                            : "text-slate-500"
+                        }
+                      >
+                        {d.uploadStatus.toUpperCase()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={cancelCurrentUpload}
+                  className="mx-auto inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2 text-xs font-semibold text-rose-700"
                 >
-                   <button 
-                      onClick={triggerOrchestrator}
-                      className="w-full py-4 rounded-xl bg-white text-slate-900 font-bold text-[15px] flex items-center justify-center hover:bg-slate-100 transition-all active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.15)]"
-                   >
-                      Trigger LangGraph Orchestrator
-                      <ArrowRight className="w-5 h-5 ml-2" />
-                   </button>
-                </motion.div>
-             )}
-
-             {isOrchestrating && (
-                 <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="p-6 rounded-2xl bg-indigo-600/10 border border-indigo-500/30 flex flex-col items-center mt-2"
-                 >
-                     <ScanLine className="w-10 h-10 text-indigo-400 animate-pulse mb-4" />
-                     <h3 className="text-lg font-bold text-white mb-2">Master Agent Initiated</h3>
-                     <p className="text-slate-300 text-sm text-center">Negotiating with Eligibility Assessor and Scholarship Logic Engine...</p>
-                 </motion.div>
-             )}
+                  <XCircle className="h-4 w-4" /> Cancel Current Upload
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-100">
+                  {resultStatus === "success" && <CheckCircle2 className="h-8 w-8 text-emerald-400" />}
+                  {resultStatus === "warning" && <Landmark className="h-8 w-8 text-amber-300" />}
+                  {resultStatus === "error" && <Building2 className="h-8 w-8 text-rose-400" />}
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900">Submission Result</h2>
+                <p className="mx-auto max-w-xl text-sm text-slate-700">{resultMessage}</p>
+                {resultStatus === "warning" && (
+                  <div className="mx-auto mt-2 max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-xs text-amber-900">
+                    <p className="mb-2 inline-flex items-center gap-1 font-semibold">
+                      <AlertTriangle className="h-4 w-4" /> Guided correction checklist
+                    </p>
+                    <ul className="space-y-1">
+                      <li>Retake any document with low clarity or glare.</li>
+                      <li>Confirm OCR fields and correct mismatches (name/address/PAN).</li>
+                      <li>Add stronger financial proof (bank statement/payslip) in next submission cycle.</li>
+                      <li>Ensure CIBIL is accurate; provide supporting details if score unavailable.</li>
+                    </ul>
+                  </div>
+                )}
+                <div className="mx-auto mt-3 max-w-md space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
+                  {docs.map((d) => (
+                    <div key={d.type} className="flex items-center justify-between text-xs">
+                      <span className="capitalize text-slate-700">{d.type}</span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={
+                            d.uploadStatus === "uploaded"
+                              ? "text-emerald-300"
+                              : d.uploadStatus === "failed"
+                              ? "text-rose-300"
+                              : d.uploadStatus === "cancelled"
+                              ? "text-amber-300"
+                              : "text-slate-500"
+                          }
+                        >
+                          {d.uploadStatus.toUpperCase()}
+                        </span>
+                        {(d.uploadStatus === "failed" || d.uploadStatus === "cancelled") && (
+                          <button
+                            onClick={() => retryFailedUpload(d.type)}
+                            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-[10px] font-semibold text-slate-700"
+                          >
+                            <RefreshCcw className="h-3 w-3" /> Retry
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    setStep("home");
+                    setDocIndex(0);
+                    setDocs(DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" })));
+                    setProfile(INITIAL_PROFILE);
+                    setBank(INITIAL_BANK);
+                  }}
+                  className="mt-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900"
+                >
+                  Start New Application
+                </button>
+              </div>
+            )}
+          </motion.section>
+        )}
+            </motion.div>
           </AnimatePresence>
+        </div>
       </main>
     </div>
   );
@@ -149,9 +973,9 @@ function StudentRoute({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-       <StudentRoute>
-          <StudentDashboard />
-       </StudentRoute>
+      <StudentRoute>
+        <StudentDashboard />
+      </StudentRoute>
     </AuthProvider>
   );
 }

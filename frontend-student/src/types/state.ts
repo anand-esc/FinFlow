@@ -23,6 +23,14 @@ export interface DocumentMetadata {
   verifiedAt?: string;
 }
 
+export interface BankDetails {
+  accountHolderName: string;
+  bankName: string;
+  maskedAccount: string;  // Format: XXXX1234
+  tokenized_account_id: string;  // bank_tok_928374 format
+  verifiedAt?: string;
+}
+
 export interface StudentProfile {
   fullName: string;
   email: string;
@@ -32,7 +40,8 @@ export interface StudentProfile {
   gpa?: number;
   utilityHistoryScore?: number;
   extracurriculars?: string[];
-  alternativeCreditScore?: number;   
+  alternativeCreditScore?: number;
+  bankDetails?: BankDetails;   
 }
 
 export interface ErrorRollback {
