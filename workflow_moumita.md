@@ -1,5 +1,8 @@
 # End-to-End Workflow Context: Moumita's Journey
 
+🎯 **Core Principle: Ephemeral + Verifiable Architecture**
+“We minimize sensitive data retention by deleting raw documents while preserving cryptographic proof of verification and structured insights.”
+
 To understand exactly how the SPARC ecosystem functions, let's track a hypothetical student, **Moumita**, through the end-to-end pipeline.
 
 ## Scenario
@@ -19,8 +22,8 @@ The Web App directly opens her native mobile camera widget. She snaps a photo of
 ### Step 3: Triggering the AI Brain
 Moumita presses "Trigger Orchestrator". 
 - SPARC sends her image URL to the FastAPI Backend.
-- The **Document Intel Agent** initiates `GPT-4o Vision`, reading her Utility bill image. It detects a flawless 12-month payment history algorithmically, outputting a strict JSON format mapping to +85 Utility Trust Points.
-- To protect Moumita's identity, the **Data Ephemeralization** hook executes, permanently wiping the photo of her utility bill off our cloud storage so it cannot be leaked.
+- The **Document Intel Agent** initiates `GPT-4o Vision`, reading her Utility bill image. It extracts key structured data (e.g., {"utility_payment_score": 85}) and mathematically hashes the document.
+- **Ephemeralization Protocol**: To protect Moumita's identity, the raw photo of her utility bill is permanently wiped off our cloud storage. We only persist the extracted JSON and her `utility_bill_hash`, generating an unforgeable verification trace without hoarding PII.
 
 ### Step 4: The Edge Case (Admin Escalation)
 The **Eligibility Agent** calculates her Alternative Credit Score based on her OCR data. It calculates `SCORE: 285`. 
@@ -38,6 +41,7 @@ Across the city, a SPARC Financial Operator logs into the Desktop Admin Command 
 ### Step 6: Final Autonomy (Mock Lender Disbursal)
 Upon Admin Override, the state machine resumes. 
 - The **Scholarship Logic Engine** catches Moumita's profile and matches her against 400 mock schemes, prioritizing a "State First-Gen Scholarship".
-- Finally, it pings the local FastAPI Mock Lender Webhook (`POST /lender/v1/disburse`). The Lender API responds with a successful receipt, simulating real bank transaction latency. 
+- Finally, it pings the local FastAPI Mock Lender Webhook (`POST /lender/v1/disburse`). Instead of sending the bank her raw documents (the old, problematic model), SPARC passes only her Verification Flags, `alt_score`, and her `doc_hashes`. 
+- The Lender API acknowledges the verifiable trace and responds with a successful receipt, simulating real bank transaction latency. 
 - Moumita's phone screen automatically updates, flashing green with a confirmed Scholarship Disbursal ID.
 - Her financial footprint has been established without a single formal banking document.

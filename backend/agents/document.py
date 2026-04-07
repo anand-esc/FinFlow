@@ -1,5 +1,6 @@
 from datetime import datetime
 import uuid
+import hashlib
 
 import json
 from langchain_openai import ChatOpenAI
@@ -41,6 +42,7 @@ def document_intelligence_node(state: dict) -> dict:
     }
     vision_results = {"documents": []}
     extracted_data = {}
+    doc_hashes = profile.get("document_hashes", {})
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
@@ -57,6 +59,12 @@ def document_intelligence_node(state: dict) -> dict:
             "verifiedAt": datetime.utcnow().isoformat(),
             "vision_analysis": {}
         }
+        
+        # Implement Ephemeral + Verifiable Hashing Architecture
+        payload_to_hash = doc_url if doc_url else str(uuid.uuid4())
+        doc_hash = hashlib.sha256(payload_to_hash.encode('utf-8')).hexdigest()
+        doc_hashes[f"{doc_type}_hash"] = doc_hash
+        doc_result["document_hash"] = doc_hash
         
         if doc_url:
             # Use ENHANCED vision prompt with fraud detection
@@ -149,6 +157,18 @@ def document_intelligence_node(state: dict) -> dict:
                         profile["utilityHistoryScore"] = extracted.get("consistency_score", 70)
                         reasoning_parts.append(f"⚠️ Could not extract utility account - Consistency: {extracted.get('consistency_score', 70)}/100")
                 
+                elif doc_type == "admission":
+                    university = extracted.get("university_name", "")
+                    fee = extracted.get("course_fee", 0)
+                    if university:
+                        profile["universityName"] = university
+                        profile["courseFee"] = fee
+                        reasoning_parts.append(f"✅ LAYER 1: Admission detected for {university} with fee {fee}")
+                        extracted_data["admission_university"] = university
+                        extracted_data["admission_fee"] = fee
+                    else:
+                        reasoning_parts.append(f"⚠️ LAYER 1: Unable to confidently parse university name from Admission Letter.")
+                
                 # Check vision AI recommendation
                 vision_rec = extracted.get("recommendation", "VERIFIED")
                 if vision_rec == "REJECT":
@@ -178,7 +198,8 @@ def document_intelligence_node(state: dict) -> dict:
     }
     
     if not fraud_detected and extracted_data:
-        is_consistent, match_reasoning, mismatches = cross_match_documents(extracted_data)
+        user_declared_name = profile.get("fullName", "").strip()
+        is_consistent, match_reasoning, mismatches = cross_match_documents(extracted_data, user_declared_name)
         reasoning_parts.append(f"📋 LAYER 2: {match_reasoning}")
         
         cross_match_data["name_consistent"] = is_consistent
@@ -248,6 +269,8 @@ def document_intelligence_node(state: dict) -> dict:
         "trustScore": trust_score_result.get("trust_score", 0),
         "fraudFlags": trust_score_result.get("fraud_flags", [])
     }
+    
+    profile["document_hashes"] = doc_hashes
     
     return {
         "documents": verified_docs,

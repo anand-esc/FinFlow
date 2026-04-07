@@ -41,6 +41,7 @@ class DocumentType(Enum):
     BUSINESS_PROOF = "business_proof"
     
     # Educational (optional but helps)
+    UNIVERSITY_ADMISSION_LETTER = "admission"
     ACADEMIC_TRANSCRIPT = "transcript"
     DEGREE = "degree"
     
@@ -57,7 +58,7 @@ class DocumentRequirement:
             "address": [DocumentType.UTILITY_BILL, DocumentType.RENTAL_AGREEMENT, DocumentType.PROPERTY_DEED],
             "income": [DocumentType.BANK_STATEMENT, DocumentType.PAYSLIP, DocumentType.ITR]
         }
-        self.optional = [DocumentType.ACADEMIC_TRANSCRIPT, DocumentType.DEGREE]
+        self.optional = [DocumentType.UNIVERSITY_ADMISSION_LETTER, DocumentType.ACADEMIC_TRANSCRIPT, DocumentType.DEGREE]
 
 def analyze_collected_documents(uploaded_docs: List[Dict]) -> Dict:
     """
@@ -242,6 +243,13 @@ def build_document_collection_message(request: Dict) -> Dict:
             "description": "Upload your most recent income tax return filing.",
             "icon": "document",
             "priority": "REQUIRED"
+        },
+        "admission": {
+            "title": "Education Proof",
+            "subtitle": "University Admission Letter",
+            "description": "Upload a copy of your admission letter which states course details and your fee structure.",
+            "icon": "document",
+            "priority": "OPTIONAL"
         }
     }
     

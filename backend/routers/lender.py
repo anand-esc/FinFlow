@@ -23,6 +23,10 @@ class DisburseRequest(BaseModel):
     user_id: str
     amount: int
     alt_score: int
+    verified: bool
+    doc_hashes: dict
+    # Extract metrics logged for mock demonstration
+    metrics: dict = {}
 
 @router.post("/v1/disburse")
 def mock_lender_disburse(req: DisburseRequest):
@@ -30,6 +34,19 @@ def mock_lender_disburse(req: DisburseRequest):
     time.sleep(1.5)
     
     # Simple Mock Lender Decision Engine
+    print(f"🏦 [BANK SIMULATION] Disbursal Request Received for User: {req.user_id}")
+    print(f"🏦 [BANK SIMULATION] Ephemeral Architecture Output received:")
+    print(f"    - Alt-Score: {req.alt_score}")
+    print(f"    - KYC Verified Flag: {req.verified}")
+    print(f"    - Document Hashes: {req.doc_hashes}")
+    print(f"    - Logged Metrics: {req.metrics}")
+    
+    if not req.verified:
+        raise HTTPException(
+            status_code=400, 
+            detail="Bank Verification Failed. KYC flagged as pending or false."
+        )
+
     if req.alt_score < 300:
         raise HTTPException(
             status_code=400, 

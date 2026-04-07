@@ -31,7 +31,8 @@ function AdminDashboard() {
 
   const loadCases = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/admin/escalations");
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/admin/escalations`);
       const data = await res.json();
       if (data?.status === "success") {
         setCases(data.data || []);
@@ -57,7 +58,8 @@ function AdminDashboard() {
   const handleDecision = async (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD") => {
     setActionLoading(true);
     try {
-      await fetch(`http://localhost:8000/api/admin/escalations/${userId}/decision`, {
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+      await fetch(`${BACKEND_URL}/api/admin/escalations/${userId}/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

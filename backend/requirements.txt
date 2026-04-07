@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+firebase-admin
+langchain
+langgraph
+langchain-openai
+pydantic
+python-dotenv
+python-multipart

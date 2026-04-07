@@ -13,8 +13,7 @@ from agents.orchestrator import master_agent
 from agents.adaptive_documents import (
     get_next_document_request,
     build_document_collection_message,
-    update_collection_progress,
-    get_ui_state
+    update_collection_progress
 )
 from routers import lender
 from firebase_admin import storage
@@ -75,7 +74,7 @@ def get_next_document_request_endpoint(user_id: str):
             }
             docs_uploaded = []
         else:
-            current_state = doc.to_dict()
+            current_state = doc.to_dict() or {}
             documents_uploaded = current_state.get("documentVault", [])
             profile = current_state.get("studentProfile", {})
             
@@ -117,7 +116,7 @@ def get_document_collection_progress(user_id: str):
                 "milestone": "Start with ID verification"
             }
         
-        current_state = doc.to_dict()
+        current_state = doc.to_dict() or {}
         documents = current_state.get("documentVault", [])
         
         return update_collection_progress(documents)
@@ -252,13 +251,13 @@ def trigger_agent_workflow(request: AgentTriggerRequest):
         }
         doc_ref.set(current_state)
     else:
-        current_state = doc.to_dict()
+        current_state = doc.to_dict() or {}
     
     langgraph_state = {
         "userId": request.user_id,
         "journeyStatus": current_state.get("journeyState", "START"),
         "profile": current_state.get("studentProfile", {}),
-        "documents": current_state.get("documentVault", []) + request.payload.get("new_documents", []),
+        "documents": current_state.get("documentVault", []) + (request.payload.get("new_documents") or []),
         "options": current_state.get("options", []),
         "audit_trail": current_state.get("agentMemory", [])
     }
@@ -402,4 +401,5 @@ def submit_admin_decision(user_id: str, request: AdminDecisionRequest):
     }
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    app_module = "backend.main:app" if os.path.exists("backend/main.py") else "main:app"
+    uvicorn.run(app_module, host="0.0.0.0", port=8000, reload=True)

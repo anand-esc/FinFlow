@@ -176,7 +176,7 @@ def fuzzy_match_address(addr1: str, addr2: str, threshold: float = 0.75) -> Tupl
     return is_match, ratio * 100
 
 
-def cross_match_documents(extracted_data: Dict) -> Tuple[bool, str, Dict]:
+def cross_match_documents(extracted_data: Dict, profile_name: str = "") -> Tuple[bool, str, Dict]:
     """
     Layer 2: Complete Cross-Document Matching
     Validates consistency across Aadhaar, PAN, Utility Bill
@@ -197,23 +197,35 @@ def cross_match_documents(extracted_data: Dict) -> Tuple[bool, str, Dict]:
     utility_addr = extracted_data.get("utility_address", "").strip()
     
     # NAME MATCHING
+    # 1. Profile Name vs Document Names (Crucial anti-fraud layer)
+    if profile_name:
+        if aadhaar_name:
+            match, confidence = fuzzy_match_names(profile_name, aadhaar_name)
+            if not match:
+                mismatch_count += 1
+                mismatches["profile_aadhaar"] = f"{confidence:.1f}% match"
+                reasoning_parts.append(f"🚨 FRAUD ALERT: Aadhaar Name ({aadhaar_name}) DOES NOT MATCH Registration ({profile_name}) - {confidence:.1f}% similar")
+            else:
+                reasoning_parts.append(f"✓ Aadhaar name matches Student Profile")
+                
+        if pan_name:
+            match, confidence = fuzzy_match_names(profile_name, pan_name)
+            if not match:
+                mismatch_count += 1
+                mismatches["profile_pan"] = f"{confidence:.1f}% match"
+                reasoning_parts.append(f"🚨 FRAUD ALERT: PAN Name ({pan_name}) DOES NOT MATCH Registration ({profile_name}) - {confidence:.1f}% similar")
+            else:
+                reasoning_parts.append(f"✓ PAN name matches Student Profile")
+
+    # 2. Document vs Document (Consistency)
     if aadhaar_name and pan_name:
         match, confidence = fuzzy_match_names(aadhaar_name, pan_name)
         if not match:
             mismatch_count += 1
             mismatches["name_aadhaar_pan"] = f"{confidence:.1f}% match"
-            reasoning_parts.append(f"⚠️ Name mismatch: Aadhaar ({aadhaar_name}) vs PAN ({pan_name}) - {confidence:.1f}% similar")
+            reasoning_parts.append(f"⚠️ Document Name Mismatch: Aadhaar ({aadhaar_name}) vs PAN ({pan_name}) - {confidence:.1f}% similar")
         else:
-            reasoning_parts.append(f"✓ Aadhaar-PAN name match ({confidence:.1f}%)")
-    
-    if aadhaar_name and utility_name:
-        match, confidence = fuzzy_match_names(aadhaar_name, utility_name)
-        if not match:
-            mismatch_count += 1
-            mismatches["name_aadhaar_utility"] = f"{confidence:.1f}% match"
-            reasoning_parts.append(f"⚠️ Name mismatch: Aadhaar ({aadhaar_name}) vs Utility ({utility_name}) - {confidence:.1f}% similar")
-        else:
-            reasoning_parts.append(f"✓ Aadhaar-Utility name match ({confidence:.1f}%)")
+            reasoning_parts.append(f"✓ Aadhaar-PAN consistency verified ({confidence:.1f}%)")
     
     # ADDRESS MATCHING
     if aadhaar_addr and utility_addr:
