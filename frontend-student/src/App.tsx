@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
+
 import {
   AlertTriangle,
   ArrowRight,
@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { StudentLogin } from "./components/StudentLogin";
-import { storage } from "./lib/firebase";
+
 
 type WizardStep = "home" | "documents" | "profile" | "bank" | "review" | "result";
 type DocType = "aadhaar" | "utility" | "pan" | "admission";
@@ -212,7 +212,6 @@ function StudentDashboard() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const uploadTaskRef = useRef<ReturnType<typeof uploadBytesResumable> | null>(null);
 
   const currentDocConfig = DOC_FLOW[docIndex];
   const currentDoc = docs[docIndex];
@@ -509,7 +508,6 @@ function StudentDashboard() {
       setResultStatus("error");
       setResultMessage(`Submission crashed! ERROR MSG: ${message}`);
     } finally {
-      uploadTaskRef.current = null;
       setIsSubmitting(false);
     }
   };
@@ -526,18 +524,6 @@ function StudentDashboard() {
     }
   };
 
-  const cancelCurrentUpload = () => {
-    if (uploadTaskRef.current) {
-      uploadTaskRef.current.cancel();
-      const uploadingDoc = docs.find((d) => d.uploadStatus === "uploading");
-      if (uploadingDoc) {
-        updateDocStatus(uploadingDoc.type, {
-          uploadStatus: "cancelled",
-          uploadError: "Upload cancelled by user.",
-        });
-      }
-    }
-  };
 
   const clearCurrentCapture = () => {
     setDocs((prev) =>
@@ -1034,12 +1020,7 @@ function StudentDashboard() {
                     </div>
                   ))}
                 </div>
-                <button
-                  onClick={cancelCurrentUpload}
-                  className="mx-auto inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2 text-xs font-semibold text-rose-700"
-                >
-                  <XCircle className="h-4 w-4" /> Cancel Current Upload
-                </button>
+
               </div>
             ) : (
               <div className="space-y-3">
