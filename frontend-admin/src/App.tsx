@@ -58,9 +58,10 @@ function AdminDashboard() {
 
   useEffect(() => {
     void loadCases();
+    // Ultra-fast 1.5s polling interval ensures admin sees fraud/HITL flags practically instantly
     const timer = setInterval(() => {
       void loadCases();
-    }, 5000);
+    }, 1500);
     return () => clearInterval(timer);
   }, []);
 
