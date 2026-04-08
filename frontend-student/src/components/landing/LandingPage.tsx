@@ -12,9 +12,14 @@ import {
 } from 'lucide-react';
 
 const PARTNERS = [
-  "State Bank of India", "HDFC Credila", "Avanse Financial", 
-  "Bank of Baroda", "National Scholarship Portal", "MPOWER Financing",
-  "Vidya Lakshmi", "InCred Edu"
+  { name: "State Bank of India", url: "https://sbi.co.in/" },
+  { name: "HDFC Credila", url: "https://www.hdfccredila.com/" },
+  { name: "Avanse Financial", url: "https://www.avanse.com/" },
+  { name: "Bank of Baroda", url: "https://www.bankofbaroda.in/" },
+  { name: "National Scholarship Portal", url: "https://scholarships.gov.in/" },
+  { name: "MPOWER Financing", url: "https://www.mpowerfinancing.com/" },
+  { name: "Vidya Lakshmi", url: "https://www.vidyalakshmi.co.in/Students/" },
+  { name: "InCred Edu", url: "https://www.incred.com/" }
 ];
 
 const BENTO_FEATURES = [
@@ -139,11 +144,11 @@ export function LandingPage({ onStartJourney }: { onStartJourney: () => void }) 
             <div className="flex animate-marquee whitespace-nowrap">
               {/* Double array for infinite scroll effect */}
               {[...PARTNERS, ...PARTNERS].map((partner, i) => (
-                <div key={i} className="mx-8 flex items-center justify-center">
-                  <span className="text-xl font-outfit font-black text-slate-300 transition-colors hover:text-slate-400">
-                    {partner}
+                <a key={i} href={partner.url} target="_blank" rel="noopener noreferrer" className="mx-8 flex items-center justify-center">
+                  <span className="text-xl font-outfit font-black text-slate-300 transition-colors hover:text-indigo-400">
+                    {partner.name}
                   </span>
-                </div>
+                </a>
               ))}
             </div>
           </div>
