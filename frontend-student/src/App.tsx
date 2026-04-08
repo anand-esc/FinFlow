@@ -283,8 +283,8 @@ function StudentDashboard() {
     }
   };
 
-  const fillDemoData = (scenario: "APPROVED" | "MISMATCH" | "REJECTED") => {
-    setDemoScenario(scenario);
+  const fillDemoData = (scenario: "APPROVED" | "MISMATCH" | "REJECTED" | "FRAUD_LOCKOUT") => {
+    setDemoScenario(scenario as any);
     setDocs(DOC_FLOW.map(d => ({ type: d.type, label: d.label, uploadStatus: "demo_verified" as any, blob: "DEMO_BLOB" as any, preview: "/placeholder_pdf.png" })));
     setQualityByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { blurScore: 0, glarePercent: 0, ok: true }])) as any);
     setOcrByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { confidence: 0.99, fields: [] }])) as any);
@@ -298,13 +298,15 @@ function StudentDashboard() {
       p = { ...p, educationLevel: "UG", backlogs: "0", gapYears: "1", courseDuration: "4", universityRanking: "Mid Tier", monthlyIncome: "35000", employmentType: "Salaried", employerType: "Startup", existingEmis: "12000", creditCardUsage: "60", cibilScore: "680", hasCoApplicant: false, coApplicantCibil: "", coApplicantJobStability: "", coApplicantEmployer: "", loanAmountRequired: "1200000", loanTenure: "84", collateral: "No", collateralType: "" };
     } else if (scenario === "REJECTED") {
       p = { ...p, educationLevel: "Diploma", backlogs: "4", gapYears: "3", courseDuration: "3", universityRanking: "Low Tier", monthlyIncome: "15000", employmentType: "Unemployed", employerType: "None", existingEmis: "25000", creditCardUsage: "95", cibilScore: "540", hasCoApplicant: false, coApplicantCibil: "", coApplicantJobStability: "", coApplicantEmployer: "", loanAmountRequired: "2500000", loanTenure: "120", collateral: "No", collateralType: "" };
+    } else if (scenario === "FRAUD_LOCKOUT") {
+      p = { ...p, fullName: "Fraud Lockout Demo", educationLevel: "PG", backlogs: "0", gapYears: "0", courseDuration: "2", universityRanking: "Top Tier", monthlyIncome: "120000" };
     }
     setProfile(p);
     setStep("review");
   };
 
-  const applyDemoFillMissing = (scenario: "APPROVED" | "MISMATCH" | "REJECTED") => {
-    setDemoScenario(scenario);
+  const applyDemoFillMissing = (scenario: "APPROVED" | "MISMATCH" | "REJECTED" | "FRAUD_LOCKOUT") => {
+    setDemoScenario(scenario as any);
 
     // 1) Ensure docs are demo-verified if missing (keeps showcase fast at any step)
     setDocs((prev) =>
@@ -950,6 +952,7 @@ function StudentDashboard() {
                 <button onClick={() => fillDemoData("APPROVED")} className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-200 transition">⚡ Fill 'Approved' Profile</button>
                 <button onClick={() => fillDemoData("MISMATCH")} className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-200 transition">⚡ Fill 'Mismatch' Profile</button>
                 <button onClick={() => fillDemoData("REJECTED")} className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-200 transition">⚡ Fill 'Rejected' Profile</button>
+                <button onClick={() => fillDemoData("FRAUD_LOCKOUT")} className="rounded-xl border border-red-300 bg-red-100 px-4 py-2 text-sm font-bold text-red-900 hover:bg-red-200 transition">🔒 Fill 'Cheat' Profile</button>
               </div>
             </div>
           </motion.section>

@@ -46,6 +46,31 @@ def document_intelligence_node(state: dict) -> dict:
     # and return a perfectly clean verification result immediately.
     # =========================================================================
     if docs and all(_is_demo_doc(d.get("url", "")) for d in docs):
+        if profile.get("fullName") == "Fraud Lockout Demo":
+            # Cheat Case: Immediately throw Fraud Lockout for demo purposes
+            demo_profile = dict(profile)
+            demo_profile["trustScore"] = 0
+            demo_profile["fraudRiskLevel"] = "CRITICAL"
+            audit = {
+                "id": f"doc_{uuid.uuid4().hex[:8]}",
+                "timestamp": datetime.utcnow().isoformat(),
+                "agentName": "Document Intelligence Agent",
+                "action": "DEMO_FRAUD_TRIGGER",
+                "reasoning": "🚨 CHEAT CASE TRIGGERED: Security review flagged massive anomaly in document submission. Halt all workflows.",
+                "confidenceScore": 100,
+                "trustScore": 0,
+                "fraudFlags": ["USER_TRIGGERED_CHEAT_MODE"]
+            }
+            return {
+                "documents": [],
+                "profile": demo_profile,
+                "audit_trail": [audit],
+                "journeyStatus": "FRAUD_LOCKOUT",
+                "trustScore": 0,
+                "fraudRiskLevel": "CRITICAL",
+                "requiresHumanReview": False
+            }
+
         demo_profile = dict(profile)
         demo_profile["trustScore"] = 100
         demo_profile["fraudRiskLevel"] = "LOW"
