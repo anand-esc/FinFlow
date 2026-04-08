@@ -13,7 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-const ADMIN_EMAILS = ["suryansh.anand.dev@gmail.com"];
+const ADMIN_EMAILS = ["suryansh.anand.dev@gmail.com", "amritray43@gmail.com"];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -24,9 +24,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = auth.onAuthStateChanged((u) => {
       setUser(u);
       if (u && u.email) {
-         setRole(ADMIN_EMAILS.includes(u.email) ? 'admin' : 'student');
+        setRole(ADMIN_EMAILS.includes(u.email) ? 'admin' : 'student');
       } else {
-         setRole(null);
+        setRole(null);
       }
       setLoading(false);
     });
@@ -35,9 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGoogle = async () => {
     try {
-       await signInWithPopup(auth, googleProvider);
-    } catch(err) {
-       console.error(err);
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error(err);
     }
   };
 

@@ -26,27 +26,32 @@ import { StudentLogin } from "./components/StudentLogin";
 
 
 type WizardStep = "home" | "documents" | "profile" | "bank" | "review" | "result";
-type DocType = "aadhaar" | "utility" | "pan" | "admission";
+type DocType = "aadhaar" | "utility" | "pan" | "admission" | "marksheet" | "income_proof" | "bank_statement";
 
 type CapturedDoc = {
   type: DocType;
   label: string;
-  blob?: Blob;
+  blob?: Blob | "DEMO_BLOB";
   preview?: string;
   uploadedUrl?: string;
-  uploadStatus: "idle" | "ready" | "uploading" | "uploaded" | "failed" | "cancelled";
+  uploadStatus: "idle" | "ready" | "uploading" | "uploaded" | "failed" | "cancelled" | "demo_verified";
   uploadError?: string;
 };
 type OCRField = { key: string; label: string; value: string; confidence: number };
 
 type ProfileState = {
-  fullName: string;
-  dateOfBirth: string;
-  phone: string;
-  city: string;
-  educationLevel: string;
-  monthlyHouseholdIncome: string;
-  cibilScore: string;
+  fullName: string; dateOfBirth: string; phone: string; city: string;
+  educationLevel: string; monthlyHouseholdIncome: string; cibilScore: string;
+  // Personal Extended
+  panNumber: string; maritalStatus: string; dependents: string;
+  // Academic Extended
+  backlogs: string; gapYears: string; courseDuration: string; universityRanking: string;
+  // Financial Extended
+  monthlyIncome: string; employmentType: string; employerType: string; existingEmis: string; creditCardUsage: string;
+  // Co-applicant
+  hasCoApplicant: boolean; coApplicantCibil: string; coApplicantJobStability: string; coApplicantEmployer: string;
+  // Loan Details
+  loanAmountRequired: string; loanTenure: string; collateral: "Yes" | "No"; collateralType: string;
 };
 
 type BankState = {
@@ -59,27 +64,24 @@ type BankState = {
 
 const DOC_FLOW: Array<{ type: DocType; label: string; subtitle: string }> = [
   { type: "aadhaar", label: "Aadhaar Card", subtitle: "Government identity verification" },
-  { type: "utility", label: "Utility Bill", subtitle: "Current address consistency check" },
+  { type: "marksheet", label: "Marksheet", subtitle: "Academic performance proof" },
+  { type: "income_proof", label: "Income Proof", subtitle: "Salary slips or ITR" },
+  { type: "bank_statement", label: "Bank Statement", subtitle: "Last 6 months transactions" },
   { type: "pan", label: "PAN Card", subtitle: "Financial identity and tax profile anchor" },
   { type: "admission", label: "University Admission Letter", subtitle: "Course details and fee structure verification" },
 ];
 
 const INITIAL_PROFILE: ProfileState = {
-  fullName: "",
-  dateOfBirth: "",
-  phone: "",
-  city: "",
-  educationLevel: "",
-  monthlyHouseholdIncome: "",
-  cibilScore: "",
+  fullName: "", dateOfBirth: "", phone: "", city: "", educationLevel: "", monthlyHouseholdIncome: "", cibilScore: "",
+  panNumber: "", maritalStatus: "", dependents: "",
+  backlogs: "", gapYears: "", courseDuration: "", universityRanking: "",
+  monthlyIncome: "", employmentType: "", employerType: "", existingEmis: "", creditCardUsage: "",
+  hasCoApplicant: false, coApplicantCibil: "", coApplicantJobStability: "", coApplicantEmployer: "",
+  loanAmountRequired: "", loanTenure: "", collateral: "No", collateralType: ""
 };
 
 const INITIAL_BANK: BankState = {
-  ownerType: "self",
-  accountHolderName: "",
-  bankName: "",
-  accountLast4: "",
-  ifscCode: "",
+  ownerType: "self", accountHolderName: "", bankName: "", accountLast4: "", ifscCode: "",
 };
 
 function toDataUrl(blob: Blob): Promise<string> {
@@ -164,6 +166,7 @@ async function compressImage(blob: Blob): Promise<Blob> {
 function StudentDashboard() {
   const { user, logout } = useAuth();
   const [step, setStep] = useState<WizardStep>("home");
+  const [demoScenario, setDemoScenario] = useState<"APPROVED" | "MISMATCH" | "REJECTED">("APPROVED");
   const [docs, setDocs] = useState<CapturedDoc[]>(
     DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" }))
   );
@@ -180,13 +183,46 @@ function StudentDashboard() {
     utility: { confidence: 0, fields: [] },
     pan: { confidence: 0, fields: [] },
     admission: { confidence: 0, fields: [] },
+    marksheet: { confidence: 0, fields: [] },
+    income_proof: { confidence: 0, fields: [] },
+    bank_statement: { confidence: 0, fields: [] },
   });
   const [qualityByDoc, setQualityByDoc] = useState<Record<DocType, { blurScore: number; glarePercent: number; ok: boolean }>>({
     aadhaar: { blurScore: 0, glarePercent: 0, ok: false },
     utility: { blurScore: 0, glarePercent: 0, ok: false },
     pan: { blurScore: 0, glarePercent: 0, ok: false },
     admission: { blurScore: 0, glarePercent: 0, ok: false },
+    marksheet: { blurScore: 0, glarePercent: 0, ok: false },
+    income_proof: { blurScore: 0, glarePercent: 0, ok: false },
+    bank_statement: { blurScore: 0, glarePercent: 0, ok: false },
   });
+  
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState<Array<{role: "user"|"ai"; content: string}>>([]);
+  const [isChatting, setIsChatting] = useState(false);
+  
+  const handleChat = async () => {
+    if (!chatInput.trim() || !user) return;
+    const msg = chatInput.trim();
+    setChatHistory(p => [...p, { role: "user", content: msg }]);
+    setChatInput("");
+    setIsChatting(true);
+    try {
+      const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.uid, message: msg }),
+      });
+      const data = await res.json();
+      setChatHistory(p => [...p, { role: "ai", content: data.reply || "Sorry, I couldn't reach the backend." }]);
+    } catch {
+      setChatHistory(p => [...p, { role: "ai", content: "AI is currently offline." }]);
+    } finally {
+      setIsChatting(false);
+    }
+  };
+
   const [reducedMotion, setReducedMotion] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
@@ -208,6 +244,130 @@ function StudentDashboard() {
     }
   };
 
+  const fillDemoData = (scenario: "APPROVED" | "MISMATCH" | "REJECTED") => {
+    setDemoScenario(scenario);
+    setDocs(DOC_FLOW.map(d => ({ type: d.type, label: d.label, uploadStatus: "demo_verified" as any, blob: "DEMO_BLOB" as any, preview: "/placeholder_pdf.png" })));
+    setQualityByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { blurScore: 0, glarePercent: 0, ok: true }])) as any);
+    setOcrByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { confidence: 0.99, fields: [] }])) as any);
+
+    let p = { ...INITIAL_PROFILE, fullName: "Maya Sharma", dateOfBirth: "2001-08-15", phone: "9876543210", city: "Bangalore" };
+    setBank({ ownerType: "self", accountHolderName: "Maya Sharma", bankName: "HDFC Bank", accountLast4: "1234", ifscCode: "HDFC0001234" });
+
+    if (scenario === "APPROVED") {
+      p = { ...p, educationLevel: "PG", backlogs: "0", gapYears: "0", courseDuration: "2", universityRanking: "Top Tier", monthlyIncome: "120000", employmentType: "Salaried", employerType: "MNC", existingEmis: "5000", creditCardUsage: "15", cibilScore: "780", hasCoApplicant: true, coApplicantCibil: "810", coApplicantJobStability: "10", coApplicantEmployer: "Infosys", loanAmountRequired: "800000", loanTenure: "60", collateral: "No", collateralType: "" };
+    } else if (scenario === "MISMATCH") {
+      p = { ...p, educationLevel: "UG", backlogs: "0", gapYears: "1", courseDuration: "4", universityRanking: "Mid Tier", monthlyIncome: "35000", employmentType: "Salaried", employerType: "Startup", existingEmis: "12000", creditCardUsage: "60", cibilScore: "680", hasCoApplicant: false, coApplicantCibil: "", coApplicantJobStability: "", coApplicantEmployer: "", loanAmountRequired: "1200000", loanTenure: "84", collateral: "No", collateralType: "" };
+    } else if (scenario === "REJECTED") {
+      p = { ...p, educationLevel: "Diploma", backlogs: "4", gapYears: "3", courseDuration: "3", universityRanking: "Low Tier", monthlyIncome: "15000", employmentType: "Unemployed", employerType: "None", existingEmis: "25000", creditCardUsage: "95", cibilScore: "540", hasCoApplicant: false, coApplicantCibil: "", coApplicantJobStability: "", coApplicantEmployer: "", loanAmountRequired: "2500000", loanTenure: "120", collateral: "No", collateralType: "" };
+    }
+    setProfile(p);
+    setStep("review");
+  };
+
+  const applyDemoFillMissing = (scenario: "APPROVED" | "MISMATCH" | "REJECTED") => {
+    setDemoScenario(scenario);
+
+    // 1) Ensure docs are demo-verified if missing (keeps showcase fast at any step)
+    setDocs((prev) =>
+      prev.map((d) => {
+        if (d.blob) return d;
+        return { ...d, blob: "DEMO_BLOB" as any, preview: "/placeholder_pdf.png", uploadStatus: "demo_verified" as any, uploadError: undefined };
+      })
+    );
+    setQualityByDoc((prev) => {
+      const next = { ...prev } as any;
+      for (const d of DOC_FLOW) next[d.type] = { blurScore: 0, glarePercent: 0, ok: true };
+      return next;
+    });
+    setOcrByDoc((prev) => {
+      const next = { ...prev } as any;
+      for (const d of DOC_FLOW) next[d.type] = { confidence: 0.99, fields: prev[d.type]?.fields || [] };
+      return next;
+    });
+
+    // 2) Fill profile only where blank
+    setProfile((p0) => {
+      const base = { ...p0 };
+      if (!base.fullName) base.fullName = "Maya Sharma";
+      if (!base.dateOfBirth) base.dateOfBirth = "2001-08-15";
+      if (!base.phone) base.phone = "9876543210";
+      if (!base.city) base.city = "Bangalore";
+
+      if (scenario === "APPROVED") {
+        return {
+          ...base,
+          educationLevel: base.educationLevel || "PG",
+          backlogs: base.backlogs || "0",
+          gapYears: base.gapYears || "0",
+          courseDuration: base.courseDuration || "2",
+          universityRanking: base.universityRanking || "Top Tier",
+          monthlyIncome: base.monthlyIncome || "120000",
+          employmentType: base.employmentType || "Salaried",
+          employerType: base.employerType || "MNC",
+          existingEmis: base.existingEmis || "5000",
+          creditCardUsage: base.creditCardUsage || "15",
+          cibilScore: base.cibilScore || "780",
+          hasCoApplicant:
+            base.hasCoApplicant || (!base.coApplicantCibil && !base.coApplicantEmployer && !base.coApplicantJobStability) ? true : base.hasCoApplicant,
+          coApplicantCibil: base.coApplicantCibil || "810",
+          coApplicantJobStability: base.coApplicantJobStability || "10",
+          coApplicantEmployer: base.coApplicantEmployer || "Infosys",
+          loanAmountRequired: base.loanAmountRequired || "800000",
+          loanTenure: base.loanTenure || "60",
+          collateral: base.collateral || "No",
+        };
+      }
+      if (scenario === "MISMATCH") {
+        return {
+          ...base,
+          educationLevel: base.educationLevel || "UG",
+          backlogs: base.backlogs || "0",
+          gapYears: base.gapYears || "1",
+          courseDuration: base.courseDuration || "4",
+          universityRanking: base.universityRanking || "Mid Tier",
+          monthlyIncome: base.monthlyIncome || "35000",
+          employmentType: base.employmentType || "Salaried",
+          employerType: base.employerType || "Startup",
+          existingEmis: base.existingEmis || "12000",
+          creditCardUsage: base.creditCardUsage || "60",
+          cibilScore: base.cibilScore || "680",
+          hasCoApplicant: base.hasCoApplicant ?? false,
+          loanAmountRequired: base.loanAmountRequired || "1200000",
+          loanTenure: base.loanTenure || "84",
+          collateral: base.collateral || "No",
+        };
+      }
+      return {
+        ...base,
+        educationLevel: base.educationLevel || "Diploma",
+        backlogs: base.backlogs || "4",
+        gapYears: base.gapYears || "3",
+        courseDuration: base.courseDuration || "3",
+        universityRanking: base.universityRanking || "Low Tier",
+        monthlyIncome: base.monthlyIncome || "15000",
+        employmentType: base.employmentType || "Unemployed",
+        employerType: base.employerType || "None",
+        existingEmis: base.existingEmis || "25000",
+        creditCardUsage: base.creditCardUsage || "95",
+        cibilScore: base.cibilScore || "540",
+        hasCoApplicant: base.hasCoApplicant ?? false,
+        loanAmountRequired: base.loanAmountRequired || "2500000",
+        loanTenure: base.loanTenure || "120",
+        collateral: base.collateral || "No",
+      };
+    });
+
+    // 3) Fill bank only where blank
+    setBank((b0) => {
+      const b = { ...b0 };
+      if (!b.accountHolderName) b.accountHolderName = "Maya Sharma";
+      if (!b.bankName) b.bankName = "HDFC Bank";
+      if (!b.accountLast4) b.accountLast4 = "1234";
+      if (!b.ifscCode) b.ifscCode = "HDFC0001234";
+      return b;
+    });
+  };
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -221,15 +381,7 @@ function StudentDashboard() {
 
   const canContinueToProfile = useMemo(() => docs.every((d) => Boolean(d.blob)), [docs]);
 
-  const profileComplete = Boolean(
-    profile.fullName.trim() &&
-      profile.dateOfBirth &&
-      /^\d{10}$/.test(profile.phone.trim()) &&
-      profile.city.trim() &&
-      profile.educationLevel &&
-      profile.monthlyHouseholdIncome &&
-      /^(0|[3-9]\d{2})$/.test(profile.cibilScore)
-  );
+  const profileComplete = Boolean(profile.fullName.trim() && profile.monthlyIncome && profile.loanAmountRequired);
 
   const bankComplete = Boolean(
     bank.accountHolderName.trim() &&
@@ -451,7 +603,7 @@ function StudentDashboard() {
       };
 
       try {
-        const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+        const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:8000";
         await fetch(`${BACKEND_URL}/api/lender/v1/bank-details`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -462,7 +614,7 @@ function StudentDashboard() {
       }
 
       console.log("SENDING TO ORCHESTRATE:", uploadedDocs.map(d => d.doc_type));
-      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+      const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:8000";
       const res = await fetch(`${BACKEND_URL}/api/orchestrate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -490,6 +642,9 @@ function StudentDashboard() {
       if (status === "FRAUD_LOCKOUT") {
         setResultStatus("error");
         setResultMessage("Security review flagged this application for manual intervention. Our team will contact you shortly.");
+      } else if (status === "REJECTED") {
+        setResultStatus("error");
+        setResultMessage("Unfortunately, your application was declined based on core policy requirements.");
       } else if (status === "HITL_ESCALATION") {
         setResultStatus("warning");
         setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
@@ -633,6 +788,33 @@ function StudentDashboard() {
       </AnimatePresence>
 
       <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">
+        {(step === "profile" || step === "bank" || step === "review" || step === "result") && (
+          <div className="mb-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-orange-800">Demo Verified</p>
+                <p className="text-xs text-orange-700">Auto-fill missing fields + mark missing docs as verified for fast showcase.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={demoScenario}
+                  onChange={(e) => setDemoScenario(e.target.value as any)}
+                  className="rounded-xl border border-orange-300 bg-white px-3 py-2 text-xs font-bold text-orange-800"
+                >
+                  <option value="APPROVED">Approved Profile</option>
+                  <option value="MISMATCH">Mismatch Profile</option>
+                  <option value="REJECTED">Rejected Profile</option>
+                </select>
+                <button
+                  onClick={() => applyDemoFillMissing(demoScenario)}
+                  className="rounded-xl border border-orange-300 bg-orange-100 px-4 py-2 text-xs font-bold text-orange-800 hover:bg-orange-200 transition"
+                >
+                  ⚡ Auto-Fill Remaining
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="sticky top-[72px] z-20 mb-5 rounded-xl border border-slate-200 bg-white/90 p-3 backdrop-blur lg:hidden">
           <div className="mb-2 flex items-center justify-between text-xs">
             <span className="font-semibold text-slate-700">Step {Math.max(activeStepIndex + 1, 1)} / {stepOrder.length}</span>
@@ -711,6 +893,15 @@ function StudentDashboard() {
                 </div>
               ))}
             </div>
+            
+            <div className="mt-8 rounded-2xl border border-orange-200 bg-orange-50 p-6 shadow-sm">
+              <h2 className="text-sm font-semibold text-orange-800 mb-4 uppercase tracking-wider flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" /> Fast-Track Demo Scenarios</h2>
+              <div className="flex gap-3 flex-wrap">
+                <button onClick={() => fillDemoData("APPROVED")} className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-200 transition">⚡ Fill 'Approved' Profile</button>
+                <button onClick={() => fillDemoData("MISMATCH")} className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-200 transition">⚡ Fill 'Mismatch' Profile</button>
+                <button onClick={() => fillDemoData("REJECTED")} className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-200 transition">⚡ Fill 'Rejected' Profile</button>
+              </div>
+            </div>
           </motion.section>
         )}
 
@@ -739,19 +930,32 @@ function StudentDashboard() {
 
                 <div className="mt-5 space-y-3">
                   {!cameraActive && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={startCamera}
-                        className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400"
-                      >
-                        <Camera className="h-4 w-4" /> Take Picture
-                      </button>
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
-                      >
-                        <FileText className="h-4 w-4" /> Upload PDF / Image
-                      </button>
+                    <div className="flex flex-col gap-3">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                        <button
+                          onClick={() => {
+                            if (!currentDocConfig) return;
+                            setQualityByDoc((prev) => ({ ...prev, [currentDocConfig.type]: { blurScore: 0, glarePercent: 0, ok: true } }));
+                            setDocs((prev) => prev.map((item, idx) => idx === docIndex ? { ...item, blob: "DEMO_BLOB" as any, preview: "/placeholder_pdf.png", type: currentDocConfig.type, uploadStatus: "demo_verified" as any, uploadError: undefined } : item));
+                            setOcrByDoc((prev) => ({ ...prev, [currentDocConfig.type]: { confidence: 0.99, fields: [] }}));
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-100 border border-orange-300 px-4 py-2.5 text-sm font-semibold text-orange-700 hover:bg-orange-200"
+                        >
+                          ⚡ Demo Verified
+                        </button>
+                        <button
+                          onClick={startCamera}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400"
+                        >
+                          <Camera className="h-4 w-4" /> Take Photo
+                        </button>
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="col-span-2 lg:col-span-1 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+                        >
+                          <FileText className="h-4 w-4" /> Upload File
+                        </button>
+                      </div>
                       <input 
                         type="file" 
                         ref={fileInputRef} 
@@ -818,10 +1022,10 @@ function StudentDashboard() {
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="aspect-[4/3] overflow-hidden rounded-xl border border-slate-300 bg-black">
                   <video ref={videoRef} className={`h-full w-full object-cover ${cameraActive ? "block" : "hidden"}`} playsInline muted />
-                  {!cameraActive && currentDoc?.preview && currentDoc?.blob?.type === "application/pdf" && (
+                  {!cameraActive && currentDoc?.preview && (currentDoc?.blob as any)?.type === "application/pdf" && (
                      <div className="grid h-full place-items-center bg-slate-100 text-sm text-slate-500">PDF File Selected</div>
                   )}
-                  {!cameraActive && currentDoc?.preview && currentDoc?.blob?.type !== "application/pdf" && <img src={currentDoc.preview} alt="Captured preview" className="h-full w-full object-cover" />}
+                  {!cameraActive && currentDoc?.preview && (currentDoc?.blob as any)?.type !== "application/pdf" && <img src={currentDoc.preview} alt="Captured preview" className="h-full w-full object-cover" />}
                   {!cameraActive && !currentDoc?.preview && (
                     <div className="grid h-full place-items-center text-sm text-slate-500">Preview will appear here</div>
                   )}
@@ -877,36 +1081,103 @@ function StudentDashboard() {
         )}
 
         {step === "profile" && (
-          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-2xl font-bold text-slate-900">Student Profile</h2>
-            <p className="mt-1 text-sm text-slate-600">We collect only fields required for risk and eligibility processing.</p>
-            <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-              Live trust simulation: <span className="font-bold">{trustSimulation}/900</span>
-            </div>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Full name" value={profile.fullName} onChange={(e) => setProfile((p) => ({ ...p, fullName: e.target.value }))} />
-              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" type="date" value={profile.dateOfBirth} onChange={(e) => setProfile((p) => ({ ...p, dateOfBirth: e.target.value }))} />
-              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="Phone number" value={profile.phone} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))} />
-              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" placeholder="City" value={profile.city} onChange={(e) => setProfile((p) => ({ ...p, city: e.target.value }))} />
-              <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={profile.educationLevel} onChange={(e) => setProfile((p) => ({ ...p, educationLevel: e.target.value }))}>
-                <option value="">Education level</option>
-                <option value="UG">Undergraduate</option>
-                <option value="PG">Postgraduate</option>
-                <option value="Diploma">Diploma</option>
-                <option value="Other">Other</option>
-              </select>
-              <select className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" value={profile.monthlyHouseholdIncome} onChange={(e) => setProfile((p) => ({ ...p, monthlyHouseholdIncome: e.target.value }))}>
-                <option value="">Monthly household income</option>
-                <option value="<25k">&lt; 25k</option>
-                <option value="25k-50k">25k - 50k</option>
-                <option value="50k-100k">50k - 100k</option>
-                <option value=">100k">&gt; 100k</option>
-              </select>
-              <input className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm md:col-span-2" placeholder="CIBIL score (300-900) or 0 if unavailable" value={profile.cibilScore} onChange={(e) => setProfile((p) => ({ ...p, cibilScore: e.target.value }))} />
-            </div>
-            <div className="mt-6 flex gap-2">
-              <button onClick={() => setStep("documents")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
-              <button onClick={() => setStep("bank")} disabled={!profileComplete} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900 disabled:opacity-40">Continue</button>
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex justify-between items-start mb-1">
+                <h2 className="text-2xl font-bold text-slate-900">Student Profile</h2>
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-700 shadow-sm">
+                  Trust Simulation <span className="font-bold">{trustSimulation}/900</span>
+                </div>
+              </div>
+              <p className="mb-6 text-sm text-slate-600">Please provide detailed academic and financial backgrounds for accurate risk evaluation.</p>
+              
+              <div className="space-y-8">
+                {/* 1. Personal */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3 pb-1 border-b">1. Personal Details</h3>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="Full name" value={profile.fullName} onChange={e => setProfile(p => ({ ...p, fullName: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="date" value={profile.dateOfBirth} onChange={e => setProfile(p => ({ ...p, dateOfBirth: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="Phone number" value={profile.phone} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="City" value={profile.city} onChange={e => setProfile(p => ({ ...p, city: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="PAN Number" value={profile.panNumber} onChange={e => setProfile(p => ({ ...p, panNumber: e.target.value }))} />
+                    <select className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" value={profile.maritalStatus} onChange={e => setProfile(p => ({ ...p, maritalStatus: e.target.value }))}>
+                      <option value="">Marital Status</option><option value="Single">Single</option><option value="Married">Married</option>
+                    </select>
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full lg:col-span-3" type="number" placeholder="Number of Dependents" value={profile.dependents} onChange={e => setProfile(p => ({ ...p, dependents: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* 2. Academic */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3 pb-1 border-b">2. Academic Details</h3>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <select className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" value={profile.educationLevel} onChange={e => setProfile(p => ({ ...p, educationLevel: e.target.value }))}>
+                      <option value="">Education level</option><option value="UG">Undergraduate</option><option value="PG">Postgraduate</option><option value="Diploma">Diploma</option>
+                    </select>
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Backlogs (count)" value={profile.backlogs} onChange={e => setProfile(p => ({ ...p, backlogs: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Gap Years" value={profile.gapYears} onChange={e => setProfile(p => ({ ...p, gapYears: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Course Duration (Years)" value={profile.courseDuration} onChange={e => setProfile(p => ({ ...p, courseDuration: e.target.value }))} />
+                    <select className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full lg:col-span-2 bg-white" value={profile.universityRanking} onChange={e => setProfile(p => ({ ...p, universityRanking: e.target.value }))}>
+                      <option value="">University Ranking</option><option value="Top Tier">Top Tier</option><option value="Mid Tier">Mid Tier</option><option value="Low Tier">Low Tier</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 3. Financial */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3 pb-1 border-b">3. Financial Details</h3>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Monthly Income (₹)" value={profile.monthlyIncome} onChange={e => setProfile(p => ({ ...p, monthlyIncome: e.target.value }))} />
+                    <select className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" value={profile.employmentType} onChange={e => setProfile(p => ({ ...p, employmentType: e.target.value }))}>
+                      <option value="">Employment Type</option><option value="Salaried">Salaried</option><option value="Self-Employed">Self-Employed</option><option value="Unemployed">Unemployed</option>
+                    </select>
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="Employer Type (MNC, Startup, Govt)" value={profile.employerType} onChange={e => setProfile(p => ({ ...p, employerType: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Existing EMIs (₹/mo)" value={profile.existingEmis} onChange={e => setProfile(p => ({ ...p, existingEmis: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Credit Card Usage (%)" value={profile.creditCardUsage} onChange={e => setProfile(p => ({ ...p, creditCardUsage: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="CIBIL score (300-900)" value={profile.cibilScore} onChange={e => setProfile(p => ({ ...p, cibilScore: e.target.value }))} />
+                  </div>
+                </div>
+
+                {/* 4. Co-Applicant */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600">4. Co-Applicant Form</h3>
+                    <label className="flex items-center gap-2 text-sm font-bold text-indigo-600 cursor-pointer">
+                      <input type="checkbox" className="w-4 h-4 rounded text-indigo-600" checked={profile.hasCoApplicant} onChange={e => setProfile(p => ({ ...p, hasCoApplicant: e.target.checked }))} /> Enable
+                    </label>
+                  </div>
+                  {profile.hasCoApplicant ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" placeholder="CIBIL Score" value={profile.coApplicantCibil} onChange={e => setProfile(p => ({ ...p, coApplicantCibil: e.target.value }))} />
+                      <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" type="number" placeholder="Job Stability (years)" value={profile.coApplicantJobStability} onChange={e => setProfile(p => ({ ...p, coApplicantJobStability: e.target.value }))} />
+                      <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" placeholder="Employer Name" value={profile.coApplicantEmployer} onChange={e => setProfile(p => ({ ...p, coApplicantEmployer: e.target.value }))} />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">No co-applicant included. Adding a co-applicant can significantly improve approval chances.</p>
+                  )}
+                </div>
+
+                {/* 5. Loan Details */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3 pb-1 border-b">5. Loan Details</h3>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Amount Required (₹)" value={profile.loanAmountRequired} onChange={e => setProfile(p => ({ ...p, loanAmountRequired: e.target.value }))} />
+                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Tenure (Months)" value={profile.loanTenure} onChange={e => setProfile(p => ({ ...p, loanTenure: e.target.value }))} />
+                    <select className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full bg-white" value={profile.collateral} onChange={e => setProfile(p => ({ ...p, collateral: e.target.value as any }))}>
+                      <option value="No">No Collateral</option><option value="Yes">Provide Collateral</option>
+                    </select>
+                    {profile.collateral === "Yes" && (
+                      <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full lg:col-span-3" placeholder="Collateral Type (e.g. Property, FD)" value={profile.collateralType} onChange={e => setProfile(p => ({ ...p, collateralType: e.target.value }))} />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-2 pt-4 border-t">
+                <button onClick={() => setStep("documents")} className="rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">Back</button>
+                <button onClick={() => setStep("bank")} disabled={!profileComplete} className="rounded-lg bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed">Continue to Bank Setup</button>
+              </div>
             </div>
           </motion.section>
         )}
@@ -1032,16 +1303,23 @@ function StudentDashboard() {
                 <h2 className="text-2xl font-bold text-slate-900">Submission Result</h2>
                 <p className="mx-auto max-w-xl text-sm text-slate-700">{resultMessage}</p>
                 {resultStatus === "warning" && (
-                  <div className="mx-auto mt-2 max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-3 text-left text-xs text-amber-900">
-                    <p className="mb-2 inline-flex items-center gap-1 font-semibold">
-                      <AlertTriangle className="h-4 w-4" /> Guided correction checklist
+                  <div className="mx-auto mt-2 max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-4 text-left text-sm text-amber-900 border-l-4 border-l-amber-500 shadow-sm">
+                    <p className="mb-2 inline-flex items-center gap-2 font-bold text-base">
+                      <AlertTriangle className="h-5 w-5" /> Policy vs Bank Mismatch Detected
                     </p>
-                    <ul className="space-y-1">
-                      <li>Retake any document with low clarity or glare.</li>
-                      <li>Confirm OCR fields and correct mismatches (name/address/PAN).</li>
-                      <li>Add stronger financial proof (bank statement/payslip) in next submission cycle.</li>
-                      <li>Ensure CIBIL is accurate; provide supporting details if score unavailable.</li>
+                    <p className="mb-3">Your profile meets initial policy guidelines but falls short of specific lender risk thresholds. The AI engine recommends the following modifications to pass the Bank Filter:</p>
+                    <ul className="space-y-1.5 list-disc list-inside ml-2 font-medium">
+                       {Number(profile.monthlyIncome) < 50000 && <li>Add Co-Applicant income to reach ₹50,000/mo minimum.</li>}
+                       {Number(profile.cibilScore) < 700 && <li>Provide a Co-Applicant with a CIBIL score of 750+.</li>}
+                       {profile.collateral === "No" && <li>Add Property or FD collateral to lower risk exposure.</li>}
+                       <li>Decrease required loan amount or extend tenure to reduce EMI stress.</li>
                     </ul>
+                    <div className="mt-5 border-t border-amber-200 pt-3 flex flex-col sm:flex-row gap-3 items-center justify-between">
+                      <p className="text-xs text-amber-700 w-full sm:w-1/2">Try adjusting these parameters live to see how they impact your probability of approval.</p>
+                      <button onClick={() => setStep("profile")} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white font-bold hover:bg-indigo-700 transition shadow-sm">
+                        <RefreshCcw className="h-4 w-4" /> Run 'What-If' Simulation
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="mx-auto mt-3 max-w-md space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
@@ -1074,6 +1352,38 @@ function StudentDashboard() {
                     </div>
                   ))}
                 </div>
+
+                <div className="mx-auto mt-6 max-w-md rounded-xl border border-indigo-200 bg-white overflow-hidden shadow-sm">
+                  <div className="bg-indigo-50 border-b border-indigo-100 p-3 text-left">
+                    <p className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-2">
+                       Ask FinFlow AI
+                    </p>
+                  </div>
+                  <div className="p-4 flex flex-col gap-3 min-h-[120px] max-h-64 overflow-y-auto text-left">
+                    {chatHistory.length === 0 ? (
+                      <p className="text-xs text-slate-500 italic">Curious why you got this result or how to improve? Ask the AI model that scored you.</p>
+                    ) : (
+                      chatHistory.map((msg, i) => (
+                        <div key={i} className={`text-xs p-2.5 rounded-lg ${msg.role === 'user' ? 'bg-slate-100 text-slate-800 self-end ml-6' : 'bg-indigo-50 text-indigo-900 self-start mr-6'}`}>
+                          {msg.content}
+                        </div>
+                      ))
+                    )}
+                    {isChatting && <div className="text-xs text-indigo-500 italic p-2 bg-indigo-50 rounded-lg self-start">FinFlow AI is typing...</div>}
+                  </div>
+                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
+                    <input 
+                      type="text" 
+                      value={chatInput} 
+                      onChange={e => setChatInput(e.target.value)} 
+                      onKeyDown={e => e.key === 'Enter' && handleChat()}
+                      placeholder="E.g., How much more income do I need?" 
+                      className="flex-1 rounded border border-slate-300 px-3 py-1.5 text-xs focus:outline-indigo-500"
+                    />
+                    <button onClick={handleChat} disabled={isChatting || !chatInput.trim()} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold disabled:opacity-50">Send</button>
+                  </div>
+                </div>
+
                 <button
                   onClick={() => {
                     setStep("home");

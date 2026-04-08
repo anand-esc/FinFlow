@@ -16,6 +16,18 @@ from agents.fraud_detection import (
     FraudRiskCalculator
 )
 
+def _is_demo_doc(url: str) -> bool:
+    """Returns True if the document URL is a demo/placeholder (not a real document)."""
+    if not url:
+        return True
+    url_lower = str(url).lower()
+    return (
+        "placeholder" in url_lower
+        or url_lower == "demo_blob"
+        or url_lower.startswith("/placeholder")
+        or url_lower.startswith("demo_")
+    )
+
 def document_intelligence_node(state: dict) -> dict:
     """
     ============================================================================
@@ -28,7 +40,41 @@ def document_intelligence_node(state: dict) -> dict:
     """
     docs = state.get("documents", [])
     profile = state.get("profile", {})
-    
+
+    # =========================================================================
+    # DEMO FAST-TRACK: If ALL documents are placeholder/demo, skip all 4 layers
+    # and return a perfectly clean verification result immediately.
+    # =========================================================================
+    if docs and all(_is_demo_doc(d.get("url", "")) for d in docs):
+        demo_profile = dict(profile)
+        demo_profile["trustScore"] = 100
+        demo_profile["fraudRiskLevel"] = "LOW"
+        demo_profile["utilityHistoryScore"] = 99
+        verified_docs = [
+            {"type": d.get("doc_type", ""), "status": "VERIFIED",
+             "verifiedAt": datetime.utcnow().isoformat(), "vision_analysis": {}}
+            for d in docs
+        ]
+        audit = {
+            "id": f"doc_{uuid.uuid4().hex[:8]}",
+            "timestamp": datetime.utcnow().isoformat(),
+            "agentName": "Document Intelligence Agent",
+            "action": "DEMO_FAST_TRACK_BYPASS",
+            "reasoning": "⚡ DEMO MODE: All documents auto-verified. All 4 fraud layers bypassed for hackathon demo.",
+            "confidenceScore": 100,
+            "trustScore": 100,
+            "fraudFlags": []
+        }
+        return {
+            "documents": verified_docs,
+            "profile": demo_profile,
+            "audit_trail": [audit],
+            "journeyStatus": "DOC_VERIFICATION_COMPLETE",
+            "trustScore": 100,
+            "fraudRiskLevel": "LOW",
+            "requiresHumanReview": False
+        }
+
     verified_docs = []
     reasoning_parts = []
     status = "DOC_VERIFICATION_COMPLETE"
@@ -66,7 +112,9 @@ def document_intelligence_node(state: dict) -> dict:
         doc_hashes[f"{doc_type}_hash"] = doc_hash
         doc_result["document_hash"] = doc_hash
         
-        if doc_url:
+        is_demo = "placeholder" in str(doc_url).lower()
+
+        if doc_url and not is_demo:
             # Use ENHANCED vision prompt with fraud detection
             prompt = create_enhanced_vision_prompt(doc_type)
             
@@ -181,6 +229,19 @@ def document_intelligence_node(state: dict) -> dict:
                 reasoning_parts.append(f"⚠️ Failed to analyze {doc_type} via Vision: {str(e)}")
                 if doc_type == "utility":
                     profile["utilityHistoryScore"] = 70
+        elif is_demo:
+            # Demo Fast-Track Bypass
+            reasoning_parts.append(f"⚡ DEMO MODE: Auto-verified {doc_type} with 100% simulated confidence")
+            doc_result["status"] = "VERIFIED"
+            if doc_type == "aadhaar":
+                format_validation["aadhaar_valid"] = True
+                extracted_data["aadhaar_name"] = profile.get("fullName", "")
+            elif doc_type == "pan":
+                format_validation["pan_valid"] = True
+                extracted_data["pan_name"] = profile.get("fullName", "")
+            elif doc_type == "utility":
+                extracted_data["utility_address"] = profile.get("city", "")
+                profile["utilityHistoryScore"] = 99
         else:
             reasoning_parts.append(f"⚠️ Mocked {doc_type} extraction (No URL provided)")
             if doc_type == "utility":

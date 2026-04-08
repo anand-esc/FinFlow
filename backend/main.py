@@ -44,6 +44,10 @@ class AdminDecisionRequest(BaseModel):
     admin_id: str
     notes: Optional[str] = ""
 
+class AdminCaseAnalyzeRequest(BaseModel):
+    admin_id: str
+    focus: Optional[str] = None  # e.g. "trustworthiness", "clarifications", "risk"
+
 @app.get("/health")
 def health_check():
     return {
@@ -255,25 +259,38 @@ def trigger_agent_workflow(request: AgentTriggerRequest):
     
     langgraph_state = {
         "userId": request.user_id,
-        "journeyStatus": current_state.get("journeyState", "START"),
-        "profile": current_state.get("studentProfile", {}),
-        "documents": current_state.get("documentVault", []) + (request.payload.get("new_documents") or []),
-        "options": current_state.get("options", []),
-        "audit_trail": current_state.get("agentMemory", [])
+        # Always start fresh — never carry over a previous FRAUD_LOCKOUT or REJECTED status
+        "journeyStatus": "START",
+        "profile": request.payload.get("student_profile", {}),
+        "documents": request.payload.get("new_documents") or [],
+        "options": [],
+        "audit_trail": []
     }
     
     try:
-        # LangSmith tracing automatically tracks this invocation
-        final_state = master_agent.invoke(langgraph_state)
+        # LangSmith tracing automatically tracks this invocation.
+        # Tags make it easy to find traces per user during demos.
+        final_state = master_agent.invoke(
+            langgraph_state,
+            config={
+                "tags": [f"finflow", f"user:{request.user_id}", f"event:{request.event}"]
+            },
+        )
         
         # Update Firestore with new state
         updated_state = {
             "userId": final_state["userId"],
+            # Write both keys so any caller finds the state regardless of field name used
+            "journeyStatus": final_state["journeyStatus"],
             "journeyState": final_state["journeyStatus"],
+            # Write profile under both keys for backward compat
+            "profile": final_state["profile"],
             "studentProfile": final_state["profile"],
             "documentVault": final_state["documents"],
             "options": final_state.get("options", []),
+            "audit_trail": final_state["audit_trail"],
             "agentMemory": final_state["audit_trail"],
+            "langsmithTags": [f"finflow", f"user:{request.user_id}", f"event:{request.event}"],
             "updatedAt": datetime.utcnow().isoformat() + "Z"
         }
         
@@ -313,6 +330,116 @@ def trigger_agent_workflow(request: AgentTriggerRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Agent failure: {str(e)}")
 
+@app.get("/api/admin/escalations/{user_id}")
+def get_admin_case_details(user_id: str):
+    """
+    Admin: fetch full Firestore state for a given case, including audit trail.
+    This is used by the admin UI when clicking into a user profile/case.
+    """
+    try:
+        doc_ref = db.collection("journey_states").document(user_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="User journey state not found")
+        state = doc.to_dict() or {}
+
+        profile = state.get("profile", state.get("studentProfile", {})) or {}
+        memory = state.get("audit_trail", state.get("agentMemory", [])) or []
+        journey_state = state.get("journeyStatus", state.get("journeyState", "UNKNOWN"))
+
+        # LangSmith: we can't reliably compute a run URL without org/project metadata.
+        # We store tags so the demo operator can filter traces by `user:{id}`.
+        tracing_enabled = str(os.getenv("LANGCHAIN_TRACING_V2", "")).lower() in ("1", "true", "yes", "on")
+        tracing = {
+            "enabled": tracing_enabled,
+            "project": os.getenv("LANGCHAIN_PROJECT") or os.getenv("LANGSMITH_PROJECT") or None,
+            "tags": state.get("langsmithTags", [f"finflow", f"user:{user_id}"]),
+            "howToFind": f"Filter traces by tag: user:{user_id}"
+        }
+
+        return {
+            "status": "success",
+            "data": {
+                "userId": state.get("userId", user_id),
+                "journeyState": journey_state,
+                "updatedAt": state.get("updatedAt"),
+                "profile": profile,
+                "documents": state.get("documentVault", []),
+                "options": state.get("options", []),
+                "auditTrail": memory,
+                "adminReview": state.get("adminReview", None),
+                "tracing": tracing,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch case details: {str(e)}")
+
+@app.post("/api/admin/escalations/{user_id}/analyze")
+def analyze_admin_case(user_id: str, request: AdminCaseAnalyzeRequest):
+    """
+    Admin: agentic analysis for the situation with suggested clarifications.
+    This does NOT mutate state; it's an on-demand AI summary.
+    """
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        doc_ref = db.collection("journey_states").document(user_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="User journey state not found")
+        state = doc.to_dict() or {}
+
+        profile = state.get("profile", state.get("studentProfile", {})) or {}
+        memory = state.get("audit_trail", state.get("agentMemory", [])) or []
+        journey_state = state.get("journeyStatus", state.get("journeyState", "UNKNOWN"))
+
+        # Keep prompt deterministic + bank-grade.
+        focus = (request.focus or "").strip() or "trustworthiness, risk, merits, clarifications"
+        system_prompt = f"""You are FinFlow Admin Analyst, a senior risk reviewer for education loan onboarding.
+
+You will receive a case snapshot (profile + agent audit trail). Produce a concise, structured admin note with:
+- Trust assessment (0-100) and recommended action: APPROVE / REJECT / REQUEST_REUPLOAD / REQUEST_CLARIFICATION
+- Key risks (bullets)
+- Merits/positive signals (bullets)
+- Most important clarifications to request (bullets) — make them specific and actionable
+- If mismatch/HITL: suggest 2-3 'what-if' levers to improve bank pass (co-applicant, collateral, tenure, amount)
+
+Focus: {focus}
+Tone: bank-grade, objective, evidence-based. Do not invent facts. If evidence is missing, say so.
+"""
+
+        # Provide a compact context payload to the model.
+        context_payload = {
+            "userId": user_id,
+            "journeyState": journey_state,
+            "updatedAt": state.get("updatedAt"),
+            "profile": profile,
+            "adminReview": state.get("adminReview"),
+            "auditTrailTail": memory[-8:],  # last 8 events are usually enough for review
+        }
+
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+        resp = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"CASE_SNAPSHOT_JSON:\n{context_payload}")
+        ])
+
+        return {
+            "status": "success",
+            "data": {
+                "userId": user_id,
+                "journeyState": journey_state,
+                "analysis": resp.content,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze case: {str(e)}")
+
 @app.get("/api/admin/escalations")
 def get_admin_escalations():
     """
@@ -323,12 +450,12 @@ def get_admin_escalations():
         cases = []
         for d in docs:
             state = d.to_dict() or {}
-            journey_state = state.get("journeyState", "UNKNOWN")
-            if journey_state not in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "ADMIN_APPROVED"]:
+            journey_state = state.get("journeyStatus", state.get("journeyState", "UNKNOWN"))
+            if journey_state not in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "ADMIN_APPROVED", "REJECTED"]:
                 continue
 
-            profile = state.get("studentProfile", {}) or {}
-            memory = state.get("agentMemory", []) or []
+            profile = state.get("profile", state.get("studentProfile", {})) or {}
+            memory = state.get("audit_trail", state.get("agentMemory", [])) or []
             latest_reason = memory[-1].get("reasoning", "") if memory else ""
             trust_score = profile.get("trustScore", state.get("trustScore", 0))
             alt_score = profile.get("alternativeCreditScore", 0)
@@ -368,7 +495,7 @@ def submit_admin_decision(user_id: str, request: AdminDecisionRequest):
     elif decision == "REQUEST_REUPLOAD":
         next_state = "DOCS_REUPLOAD_REQUIRED"
     elif decision == "REJECT":
-        next_state = "FRAUD_LOCKOUT"
+        next_state = "REJECTED"
     else:
         raise HTTPException(status_code=400, detail="Invalid decision")
 
@@ -381,8 +508,13 @@ def submit_admin_decision(user_id: str, request: AdminDecisionRequest):
         "confidenceScore": 100
     }
 
+    # Write state under BOTH field names so frontend/backend reads always resolve correctly
+    state["journeyStatus"] = next_state
     state["journeyState"] = next_state
-    state.setdefault("agentMemory", []).append(audit_entry)
+    audit_trail = state.get("audit_trail", state.get("agentMemory", []))
+    audit_trail.append(audit_entry)
+    state["audit_trail"] = audit_trail
+    state["agentMemory"] = audit_trail
     state["updatedAt"] = datetime.utcnow().isoformat() + "Z"
     state["adminReview"] = {
         "decision": decision,
@@ -400,6 +532,53 @@ def submit_admin_decision(user_id: str, request: AdminDecisionRequest):
         "newJourneyState": next_state
     }
 
+class ChatRequest(BaseModel):
+    user_id: str
+    message: str
+    context: Optional[str] = None
+
+@app.post("/api/chat")
+def chat_assistant(request: ChatRequest):
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+        
+        doc_ref = db.collection("journey_states").document(request.user_id)
+        doc = doc_ref.get()
+        state = doc.to_dict() if doc.exists else {}
+        profile = state.get("studentProfile", {})
+        memory = state.get("agentMemory", [])
+        
+        # Get the reason for the mismatch from memory
+        mismatch_reason = "No previous assessment found."
+        for m in reversed(memory):
+            if m.get("action") == "EVALUATE_POLICY_VS_BANK":
+                mismatch_reason = str(m.get("details", m.get("reasoning")))
+                break
+                
+        system_prompt = f"""You are an empathetic, insightful fin-tech counselor for FinFlow AI.
+The user is applying for an education loan.
+Their recent profile evaluated against bank filters yielded this status: {mismatch_reason}
+Profile details: 
+- Income: {profile.get('monthlyIncome', 'N/A')}
+- EMI existing: {profile.get('existingEmis', 'N/A')} 
+- Required Loan: {profile.get('loanAmountRequired', 'N/A')}
+- CIBIL: {profile.get('cibilScore', 'N/A')}
+- Co-Applicant: {'Yes' if profile.get('hasCoApplicant') else 'No'}
+
+Answer the user's question concisely in 2-3 sentences. Focus on actionable improvements (like adding a co-applicant or collateral). Maintain a professional, 'bank-grade' but supportive tone."""
+
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=request.message)
+        ])
+        
+        return {"status": "success", "reply": response.content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     app_module = "backend.main:app" if os.path.exists("backend/main.py") else "main:app"
     uvicorn.run(app_module, host="0.0.0.0", port=8000, reload=True)
+

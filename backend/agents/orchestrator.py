@@ -30,7 +30,6 @@ def route_after_document(state: JourneyState):
     Route after document verification with 4-layer fraud detection
     """
     status = state.get("journeyStatus")
-    trust_score = state.get("trustScore", 0)
     
     if status == "FRAUD_LOCKOUT":
         # CRITICAL: Fraud detected → HALT immediately
@@ -38,16 +37,16 @@ def route_after_document(state: JourneyState):
     elif status == "HITL_ESCALATION":
         # Medium/High risk → Escalate to human
         return "end"
-    elif trust_score >= 85 and status == "DOC_VERIFICATION_COMPLETE":
-        # Low risk, auto-approved → Continue to eligibility
+    elif status == "DOC_VERIFICATION_COMPLETE":
+        # Documents passed → Continue to eligibility regardless of score
         return "continue"
     else:
         # Fallback: Go to human review
         return "end"
 
 def route_after_eligibility(state: JourneyState):
-    if state.get("journeyStatus") == "HITL_ESCALATION" or state.get("journeyStatus") == "FRAUD_LOCKOUT":
-        return "end" # Escalate to human, halt autonomy
+    if state.get("journeyStatus") in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "REJECTED"]:
+        return "end" # Escalate to human or halt autonomy
     return "continue"
 
 def build_workflow():

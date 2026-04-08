@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Eye, EyeOff, FileCheck2, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, FileCheck2, ShieldAlert } from "lucide-react";
 
 export function EscalationPanel({
   data,
   explainable,
   onAction,
   actionLoading,
+  onOpen,
 }: {
   data: {
     id: string;
@@ -17,10 +18,12 @@ export function EscalationPanel({
     riskLevel?: string;
     reasoning?: string;
     trustScore?: number;
+    isDemo?: boolean;
   };
   explainable: boolean;
   onAction: (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD") => void;
   actionLoading?: boolean;
+  onOpen?: (userId: string) => void;
 }) {
   const [piiMasked, setPiiMasked] = useState(true);
   const isLocked = data.journeyState === "FRAUD_LOCKOUT";
@@ -88,6 +91,12 @@ export function EscalationPanel({
         )}
 
         <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => onOpen?.(data.userId)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            View Profile & Logs
+          </button>
           {!isLocked && (
             <>
               <button
