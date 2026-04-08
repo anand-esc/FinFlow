@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, ScanFace, Fingerprint, ShieldCheck } from 'lucide-react';
+import { Lock, ShieldCheck } from 'lucide-react';
 
 export function AppLock({ children }: { children: React.ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
@@ -48,27 +48,17 @@ export function AppLock({ children }: { children: React.ReactNode }) {
     };
   }, [handleActivity]);
 
-  const unlockWithBiometrics = async () => {
+  const unlockLocally = async () => {
     setIsAuthenticating(true);
     setError('');
     
     try {
-      // In a full production build, we would use the Web Authentication API (WebAuthn) here.
-      // E.g. navigator.credentials.get({ publicKey: {...} })
-      // Since this requires a backend challenge generation flow, we simulate the OS-level interaction
-      // delay that occurs during local client authentication.
-      
-      if (!window.PublicKeyCredential) {
-         throw new Error("Biometrics not supported on this device.");
-      }
-
-      // Simulate the biometric/WebAuthn UI pause (OS-level prompt)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      // Success!
+      // Demo simplification:
+      // We intentionally remove any external auth prompt and provide a local unlock action.
+      await new Promise((resolve) => setTimeout(resolve, 700));
       setIsLocked(false);
     } catch (err: any) {
-      setError(err.message || 'Biometric authentication failed. Please try again.');
+      setError(err.message || 'Unlock failed. Please try again.');
     } finally {
       setIsAuthenticating(false);
     }
@@ -102,7 +92,7 @@ export function AppLock({ children }: { children: React.ReactNode }) {
               {error && <p className="mb-4 text-xs font-semibold text-rose-500">{error}</p>}
 
               <button
-                onClick={unlockWithBiometrics}
+                onClick={unlockLocally}
                 disabled={isAuthenticating}
                 className="group relative flex w-full items-center justify-center space-x-3 overflow-hidden rounded-xl bg-slate-900 px-6 py-4 text-sm font-bold text-white shadow-lg transition-all hover:bg-slate-800 disabled:bg-slate-700"
               >
@@ -113,9 +103,8 @@ export function AppLock({ children }: { children: React.ReactNode }) {
                    </span>
                 ) : (
                   <>
-                    <ScanFace className="h-5 w-5 group-hover:scale-110 transition-transform" />
-                    <span>Unlock with Biometrics</span>
-                    <Fingerprint className="absolute right-6 h-10 w-10 opacity-10" />
+                    <ShieldCheck className="h-5 w-5" />
+                    <span>Unlock</span>
                   </>
                 )}
               </button>
