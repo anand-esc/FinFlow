@@ -1817,11 +1817,11 @@ function StudentDashboard() {
                   </div>
                 )}
 
-                {["SCHOLARSHIP_MATCHED", "AUTO_SCHOLARSHIP_RECOMMENDED"].includes(journeyState) && (
+                {journeyState === "SCHOLARSHIP_MATCHED" && (
                   <div className="mx-auto max-w-xl rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
                     <div className="text-center">
                       <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">
-                        {journeyState === "SCHOLARSHIP_MATCHED" ? "Scholarships Matched" : "Auto: Scholarship Recommended"}
+                        Scholarships Matched
                       </h2>
                       <p className="mt-2 text-sm text-slate-700">{resultMessage}</p>
                     </div>

@@ -227,7 +227,13 @@ function AdminDashboard() {
         </div>
 
         <div className="space-y-2">
-          <NavItem label="Review Cases" icon={<ClipboardCheck className="h-4 w-4" />} active={tab === "review"} onClick={() => setTab("review")} count={visibleCases.filter((x) => x.journeyState === "HITL_ESCALATION").length} />
+          <NavItem
+            label="Review Cases"
+            icon={<ClipboardCheck className="h-4 w-4" />}
+            active={tab === "review"}
+            onClick={() => setTab("review")}
+            count={visibleCases.filter((x) => x.journeyState === "HITL_ESCALATION" || x.journeyState === "CLARIFICATION_REQUIRED").length}
+          />
           <NavItem label="Locked Cases" icon={<Lock className="h-4 w-4" />} active={tab === "locked"} onClick={() => setTab("locked")} count={visibleCases.filter((x) => x.journeyState === "FRAUD_LOCKOUT").length} />
           <NavItem label="Approved" icon={<CheckCircle2 className="h-4 w-4" />} active={tab === "approved"} onClick={() => setTab("approved")} count={visibleCases.filter((x) => x.journeyState === "ADMIN_APPROVED").length} />
           <NavItem label="Rejected" icon={<Shield className="h-4 w-4" />} active={tab === "rejected"} onClick={() => setTab("rejected")} count={visibleCases.filter((x) => x.journeyState === "REJECTED").length} />
