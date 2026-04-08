@@ -399,7 +399,7 @@ def analyze_admin_case(user_id: str, request: AdminCaseAnalyzeRequest):
     This does NOT mutate state; it's an on-demand AI summary.
     """
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain_core.messages import HumanMessage, SystemMessage
 
         doc_ref = db.collection("journey_states").document(user_id)
@@ -437,7 +437,7 @@ Tone: bank-grade, objective, evidence-based. Do not invent facts. If evidence is
             "auditTrailTail": memory[-8:],  # last 8 events are usually enough for review
         }
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
         resp = llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=f"CASE_SNAPSHOT_JSON:\n{context_payload}")
@@ -562,7 +562,7 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 def chat_assistant(request: ChatRequest):
     try:
-        from langchain_openai import ChatOpenAI
+        from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain_core.messages import HumanMessage, SystemMessage
         
         doc_ref = db.collection("journey_states").document(request.user_id)
@@ -590,7 +590,7 @@ Profile details:
 
 Answer the user's question concisely in 2-3 sentences. Focus on actionable improvements (like adding a co-applicant or collateral). Maintain a professional, 'bank-grade' but supportive tone."""
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
         response = llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=request.message)
