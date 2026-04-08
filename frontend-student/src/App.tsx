@@ -665,13 +665,10 @@ function StudentDashboard() {
       if (status === "FRAUD_LOCKOUT") {
         setResultStatus("error");
         setResultMessage("Security review flagged this application for manual intervention. Our team will contact you shortly.");
-<<<<<<< HEAD
+        triggerPushNotification("SPARC Security Alert", "Your application has been flagged for manual intervention.");
       } else if (status === "REJECTED") {
         setResultStatus("error");
         setResultMessage("Unfortunately, your application was declined based on core policy requirements.");
-=======
-        triggerPushNotification("SPARC Security Alert", "Your application has been flagged for manual intervention.");
->>>>>>> pwa-edits
       } else if (status === "HITL_ESCALATION") {
         setResultStatus("warning");
         setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
