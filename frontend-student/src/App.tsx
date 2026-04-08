@@ -1082,18 +1082,24 @@ function StudentDashboard() {
 
             <div className="grid gap-4 lg:grid-cols-3">
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Banks</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Loan offers</p>
                 <div className="mt-3 space-y-3 text-sm">
                   {[
                     { name: "HDFC Bank", rate: "8.5%–10.5%", max: "₹25L", type: "Education Loan" },
                     { name: "SBI", rate: "8.1%–10.2%", max: "₹20L", type: "Student Loan" },
-                    { name: "ICICI", rate: "9.0%–11.0%", max: "₹30L", type: "Study Abroad Loan" },
                   ].map((b) => (
                     <div key={b.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="font-bold text-slate-900">{b.name}</p>
                       <p className="text-xs text-slate-600">{b.type} • Rate {b.rate} • Max {b.max}</p>
-                      <button onClick={() => setStep("documents")} disabled={isLocked} className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40">
-                        Apply Now
+                      <button
+                        onClick={() => {
+                          setProfile((p) => ({ ...p, fundingType: "loan" }));
+                          setStep("documents");
+                        }}
+                        disabled={isLocked || profile.fundingType !== "loan"}
+                        className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40"
+                      >
+                        {profile.fundingType === "auto" ? "Available in Auto Plan" : profile.fundingType === "loan" ? "Apply Now" : "Switch to Loan"}
                       </button>
                     </div>
                   ))}
@@ -1101,12 +1107,10 @@ function StudentDashboard() {
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">NBFCs</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">NBFC option</p>
                 <div className="mt-3 space-y-3 text-sm">
                   {[
                     { name: "EduFin NBFC", tags: ["Fast approval", "No collateral", "High interest"], rate: "12%–16%" },
-                    { name: "QuickStudy Finance", tags: ["Fast approval", "Digital KYC"], rate: "11%–15%" },
-                    { name: "BrightFuture NBFC", tags: ["No collateral", "High interest"], rate: "13%–17%" },
                   ].map((n) => (
                     <div key={n.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <p className="font-bold text-slate-900">{n.name}</p>
@@ -1118,8 +1122,15 @@ function StudentDashboard() {
                           </span>
                         ))}
                       </div>
-                      <button onClick={() => setStep("documents")} disabled={isLocked} className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40">
-                        Apply Now
+                      <button
+                        onClick={() => {
+                          setProfile((p) => ({ ...p, fundingType: "loan" }));
+                          setStep("documents");
+                        }}
+                        disabled={isLocked || profile.fundingType !== "loan"}
+                        className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40"
+                      >
+                        {profile.fundingType === "auto" ? "Available in Auto Plan" : profile.fundingType === "loan" ? "Apply Now" : "Switch to Loan"}
                       </button>
                     </div>
                   ))}
@@ -1133,27 +1144,33 @@ function StudentDashboard() {
                     { id: "mock1", name: "National Merit Scholarship", eligibility: "Marks ≥ 85%", amount: 60000, type: "merit" },
                     { id: "mock2", name: "Need-Based Tuition Support", eligibility: "Income ≤ ₹40,000/mo", amount: 75000, type: "need" },
                     { id: "mock3", name: "NGO Community Education Fund", eligibility: "Needs verification", amount: 20000, type: "need" },
-                  ]).map((s: any) => (
-                    <div key={s.id || s.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="font-bold text-slate-900">{s.name}</p>
-                      <p className="text-xs text-slate-600">{s.eligibility} • ₹{s.amount}</p>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 capitalize">
-                          {s.type || "merit/need"}
-                        </span>
-                        <button
-                          onClick={() => {
-                            setProfile((p) => ({ ...p, fundingType: "scholarship" }));
-                            setStep("documents");
-                          }}
-                          disabled={isLocked}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-40"
-                        >
-                          Check Eligibility
-                        </button>
+                  ])
+                    .slice(0, 3)
+                    .map((s: any) => (
+                      <div key={s.id || s.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="font-bold text-slate-900">{s.name}</p>
+                        <p className="text-xs text-slate-600">{s.eligibility} • ₹{s.amount}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 capitalize">
+                            {s.type || "merit/need"}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setProfile((p) => ({ ...p, fundingType: "scholarship" }));
+                              setStep("documents");
+                            }}
+                            disabled={isLocked || profile.fundingType !== "scholarship"}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-40"
+                          >
+                            {profile.fundingType === "auto"
+                              ? "Available in Auto Plan"
+                              : profile.fundingType === "scholarship"
+                              ? "Select Scholarship"
+                              : "Switch to Scholarship"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             </div>
@@ -1623,6 +1640,55 @@ function StudentDashboard() {
                         {resultMessage}
                       </p>
                     </div>
+
+                    <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-left">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Funding offers (auto-selected)</p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">You will receive a scholarship or a loan based on eligibility.</p>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Scholarships</p>
+                          <div className="mt-2 space-y-2">
+                            {(scholarshipMatches?.eligible_schemes || [
+                              { id: "mock1", name: "National Merit Scholarship", eligibility: "Marks ≥ 85%", amount: 60000, type: "merit", provider: "Government" },
+                              { id: "mock2", name: "Need-Based Tuition Support", eligibility: "Income ≤ ₹40,000/mo", amount: 75000, type: "need", provider: "Government" },
+                              { id: "mock3", name: "NGO Community Education Fund", eligibility: "Needs verification", amount: 20000, type: "need", provider: "NGO" },
+                            ])
+                              .slice(0, 3)
+                              .map((s: any) => (
+                                <div key={s.id || s.name} className="rounded-lg border border-emerald-200 bg-white p-3">
+                                  <p className="text-sm font-bold text-slate-900">{s.name}</p>
+                                  <p className="mt-1 text-xs text-slate-600">{s.provider || "—"} • {s.type || "scholarship"}</p>
+                                  <p className="mt-1 text-xs text-slate-600">{s.eligibility}</p>
+                                  <p className="mt-2 text-xs font-bold text-emerald-800">Up to ₹{s.amount}</p>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Loans</p>
+                          <div className="mt-2 space-y-2">
+                            {[
+                              { name: "HDFC Bank", type: "Education Loan", rate: "8.5%–10.5%", max: "₹25L" },
+                              { name: "SBI", type: "Student Loan", rate: "8.1%–10.2%", max: "₹20L" },
+                              { name: "EduFin NBFC", type: "Education Loan (NBFC)", rate: "12%–16%", max: "₹15L" },
+                            ].slice(0, 3).map((l) => (
+                              <div key={l.name} className="rounded-lg border border-emerald-200 bg-white p-3">
+                                <p className="text-sm font-bold text-slate-900">{l.name}</p>
+                                <p className="mt-1 text-xs text-slate-600">{l.type}</p>
+                                <p className="mt-1 text-xs text-slate-600">Rate {l.rate}</p>
+                                <p className="mt-2 text-xs font-bold text-emerald-800">Max {l.max}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-lg border border-emerald-100 bg-white p-3 text-xs text-emerald-800">
+                        These offers are recommended by the system. You do not need to choose anything for the demo flow.
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1688,7 +1754,7 @@ function StudentDashboard() {
                     </div>
 
                     <div className="mt-4 space-y-3">
-                      {(scholarshipMatches?.eligible_schemes || []).map((s: any) => (
+                      {(scholarshipMatches?.eligible_schemes || []).slice(0, 3).map((s: any) => (
                         <div key={s.id || s.name} className="rounded-xl border border-slate-200 bg-white p-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>

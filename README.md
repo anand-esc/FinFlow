@@ -52,6 +52,39 @@ flowchart LR
   classDef obs fill:#fdf2f8,stroke:#ec4899,color:#111827;
 ```
 
+## Agents & responsibilities (roles)
+
+- Master Orchestrator (LangGraph): `backend/agents/orchestrator.py`
+  - Controls the journey state machine and routing between stages
+  - Persists the final `journeyStatus` / `journeyState` back to Firestore
+
+- Document Intelligence Agent: `backend/agents/document.py`
+  - Implements 4-layer fraud detection
+  - Runs GPT-4o Vision extraction through a LangChain OpenAI wrapper
+  - Produces structured verification output + `trustScore` / `fraudRiskLevel`
+
+- Eligibility / Risk Engine: `backend/agents/eligibility.py`
+  - Computes risk from policy vs bank rules (FOIR, CIBIL-like thresholds)
+  - Determines whether the flow can auto-proceed or must escalate to admin
+
+- Scholarship & Loan Matching Agent: `backend/agents/scholarship.py`
+  - Builds top scholarship schemes (keeps UI simple by showing only a limited set)
+  - For loan scenarios, triggers the lender disbursal mock
+
+- Admin Analyst (human-in-the-loop assistant): `POST /api/admin/escalations/{user_id}/analyze`
+  - `backend/main.py` generates an evidence-based admin note (trust, risks, clarifications)
+
+- Lender disbursal mock (loan component): `backend/routers/lender.py`
+  - `POST /v1/disburse` simulates a bank/NBFC decision and returns a `receipt_id`
+
+## LangGraph + LangChain + Firebase in practice
+
+- Firebase Auth: students/admin sign in via Google OAuth.
+- Firestore persistence: `journey_states/{user_id}` stores the current `journeyStatus/journeyState`, extracted profile data, and audit evidence.
+- Document handling: the student sends images for verification; after orchestration, the backend attempts **ephemeralization** by deleting uploaded blobs from Firebase Storage.
+- LangChain + GPT-4o Vision: document verification/extraction is done by the Document Intelligence agent using `langchain_openai` wrappers.
+- LangSmith tracing: orchestrations are tagged with `user:{firebase_uid}` so you can find the exact run during demos.
+
 ## Journey state machine
 
 ```mermaid
@@ -82,18 +115,20 @@ stateDiagram-v2
   - **Approved** → reaches `DISBURSAL_COMPLETE`
   - **Mismatch** → reaches `HITL_ESCALATION`
   - **Rejected** → reaches `REJECTED`
+- **Explore Funding**: shows simplified, limited offer cards (loans 2–3, scholarships 2–3).
+  - In the `ADMIN_APPROVED` demo path, the student is told what’s available and does not need to choose.
 - **Documents step**: each doc has a **⚡ Demo Verified** button (marks it as uploaded/verified)
 - **From Profile → Result**: a persistent **Demo Verified bar** appears with:
   - Scenario selector (Approved / Mismatch / Rejected)
   - **⚡ Auto‑Fill Remaining** (fills missing fields + marks missing docs as demo‑verified)
+  - For `ADMIN_APPROVED`, the result screen displays auto-selected “Scholarship or Loan” offers (guaranteed at least one option for demo consistency)
 
 This keeps the demo “live at every step” so you never have to retype details during a showcase.
 
-### Admin: realistic dummy accounts per tab
-Admin has a **Demo Data toggle** (ON by default for demos):
-- Adds ~20 realistic cases per queue (Review / Locked / Approved / Rejected)
-- Each tab’s dummy list is **different** (not copy‑pasted across tabs)
-- Demo actions are **local-only** (won’t error if backend doesn’t have those users)
+### Admin: live escalation queue + audit evidence
+- Admin dashboard polls `GET /api/admin/escalations` and updates the queue in near real time.
+- Each case drawer shows Firestore state + `audit_trail` / `agentMemory` so admin decisions are explainable.
+- For demos, if the backend has no cases yet, the UI can still keep the walkthrough smooth with placeholders.
 
 ### Admin: click into a case → logs + AI analyst
 In Review / Locked, click **“View Profile & Logs”** to open a drawer showing:

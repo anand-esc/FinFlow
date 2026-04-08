@@ -34,7 +34,7 @@ This document explains the current app execution flow across student frontend, b
    - document uploads with per-doc state (`uploading`, `uploaded`, `failed`, `cancelled`)
    - bank details posted to `/api/lender/v1/bank-details`
    - orchestration triggered via `/api/orchestrate`
-9. Result shown with success/warning/error and guided corrections on warning.
+9. Result shown with success/warning/error and guided corrections on warning. On `ADMIN_APPROVED`, the student UI shows auto-selected scholarship/loan offers (limited to 2–3 each) and explicitly does not require the user to choose.
 
 ## Student Quality and UX Layers
 
@@ -88,6 +88,7 @@ Typical reasons:
 - low eligibility score after document pass
 
 In this state, student receives warning-state messaging and correction checklist.
+After admin review, `ADMIN_APPROVED` transitions the student into the approval-success UI. For the demo path, the student is guaranteed to see at least one funding option (scholarship or loan) to keep the end-to-end flow consistent.
 
 ## Hard Lockout Edge Case
 
@@ -152,7 +153,7 @@ Student sees lockout-style failure path; admin sees locked case queue.
 - OCR endpoint is hybrid:
   - uses pytesseract/Pillow if available
   - otherwise returns deterministic fallback extraction with confidence
-- Admin queues are currently mock-backed in frontend; API wiring can be added next for live queues.
+- Admin queues are live wired to `GET /api/admin/escalations` (polling) with decisions persisted via `POST /api/admin/escalations/{user_id}/decision`.
 - Orchestrator state is persisted under `journeyState` while graph logic uses `journeyStatus`.
 
 ## Recommended Next Hardening
