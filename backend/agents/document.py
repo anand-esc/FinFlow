@@ -3,7 +3,7 @@ import uuid
 import hashlib
 
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 # Import fraud detection layers
@@ -115,7 +115,7 @@ def document_intelligence_node(state: dict) -> dict:
     extracted_data = {}
     doc_hashes = profile.get("document_hashes", {})
     
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
     # =========================================================================
     # LAYER 1 & 3: Format Validation + Vision AI Extraction
