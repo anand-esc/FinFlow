@@ -21,7 +21,7 @@ export function EscalationPanel({
     isDemo?: boolean;
   };
   explainable: boolean;
-  onAction: (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD") => void;
+  onAction: (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD" | "REQUEST_CLARIFICATION") => void;
   actionLoading?: boolean;
   onOpen?: (userId: string) => void;
 }) {
@@ -105,6 +105,13 @@ export function EscalationPanel({
                 className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
               >
                 Request Re-upload
+              </button>
+              <button
+                onClick={() => onAction(data.userId, "REQUEST_CLARIFICATION")}
+                disabled={actionLoading}
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+              >
+                Request Clarification
               </button>
               <button
                 onClick={() => onAction(data.userId, "APPROVE")}

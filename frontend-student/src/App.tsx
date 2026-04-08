@@ -166,7 +166,7 @@ async function compressImage(blob: Blob): Promise<Blob> {
 
 function StudentDashboard() {
   const { user, logout } = useAuth();
-  const [demoScenario, setDemoScenario] = useState<"APPROVED" | "MISMATCH" | "REJECTED">("APPROVED");
+  const [demoScenario, setDemoScenario] = useState<"APPROVED" | "MISMATCH" | "REJECTED" | "FRAUD_LOCKOUT">("APPROVED");
   const [step, setStep] = useState<WizardStep>(() => {
     const params = new URLSearchParams(window.location.search);
     const stepParam = params.get('step') as WizardStep;
@@ -241,6 +241,8 @@ function StudentDashboard() {
           
           if (jStatus === "ADMIN_APPROVED") {
             setResultMessage("Your application has been manually approved by the administration. Disbursal initiated.");
+          } else if (jStatus === "CLARIFICATION_REQUIRED") {
+            setResultMessage("Additional information is required. You will receive a message requesting clarification.");
           } else if (jStatus === "REJECTED") {
             setResultMessage("Unfortunately, your application was declined following a final administrative review.");
           } else if (jStatus === "DOCS_REUPLOAD_REQUIRED") {
@@ -249,10 +251,14 @@ function StudentDashboard() {
             setResultMessage("🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.");
           } else if (jStatus === "HITL_ESCALATION" || jStatus === "START") {
             setResultMessage("Your application is currently under manual review by a risk officer.");
+          } else if (jStatus === "DISBURSAL_COMPLETE") {
+            setResultMessage("✅ Funding approved. Your loan disbursal is complete.");
+          } else if (jStatus === "DISBURSAL_PENDING") {
+            setResultMessage("Funding approved. Disbursal is being processed.");
+          } else if (jStatus === "DISBURSAL_FAILED") {
+            setResultMessage("Funding was approved, but disbursal failed due to a bank system error. Please wait or contact support.");
           } else if (jStatus === "SCHOLARSHIP_MATCHED") {
             setResultMessage("Scholarship matching completed. Review eligible schemes below.");
-          } else if (jStatus === "AUTO_SCHOLARSHIP_RECOMMENDED") {
-            setResultMessage("Auto mode recommends scholarship-first based on your profile. Review eligible schemes below.");
           }
         }
       } catch(e) { }
@@ -766,10 +772,29 @@ function StudentDashboard() {
         setJourneyState("HITL_ESCALATION");
         setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
         triggerPushNotification("Application Under Review", "Your profile has been moved to priority counselor review.");
+      } else if (status === "CLARIFICATION_REQUIRED") {
+        setJourneyState("CLARIFICATION_REQUIRED");
+        setResultMessage("Additional information is required. You will receive a message requesting clarification.");
+        triggerPushNotification("Clarification Required", "Please provide additional information to continue.");
+      } else if (status === "DISBURSAL_COMPLETE") {
+        setJourneyState("DISBURSAL_COMPLETE");
+        setResultMessage("✅ Funding approved. Your loan disbursal is complete.");
+        triggerPushNotification("Funding Approved", "Your loan was approved and disbursed.");
+      } else if (status === "DISBURSAL_PENDING") {
+        setJourneyState("DISBURSAL_PENDING");
+        setResultMessage("Funding approved. Disbursal is being processed.");
+        triggerPushNotification("Disbursal Processing", "Your loan disbursal is being processed.");
+      } else if (status === "DISBURSAL_FAILED") {
+        setJourneyState("DISBURSAL_FAILED");
+        setResultMessage("Funding was approved, but disbursal failed due to a bank system error. Please wait or contact support.");
+        triggerPushNotification("Disbursal Failed", "A bank system error occurred during disbursal.");
+      } else if (status === "SCHOLARSHIP_MATCHED") {
+        setJourneyState("SCHOLARSHIP_MATCHED");
+        setResultMessage("✅ Scholarship approved. Review your matched schemes below.");
+        triggerPushNotification("Scholarship Approved", "Scholarship matching is complete.");
       } else {
-        setJourneyState("ADMIN_APPROVED");
-        setResultMessage("Application submitted successfully. You are now progressing to eligibility and funding steps.");
-        triggerPushNotification("Application Approved", "Your application was successful. Progressing to funding.");
+        setJourneyState(status);
+        setResultMessage("Application submitted successfully. Processing your eligibility and funding outcome.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -938,6 +963,7 @@ function StudentDashboard() {
                   <option value="APPROVED">Approved Profile</option>
                   <option value="MISMATCH">Mismatch Profile</option>
                   <option value="REJECTED">Rejected Profile</option>
+                  <option value="FRAUD_LOCKOUT">Fraud Profile</option>
                 </select>
                 <button
                   onClick={() => applyDemoFillMissing(demoScenario)}
@@ -1040,6 +1066,7 @@ function StudentDashboard() {
                 <button onClick={() => fillDemoData("APPROVED")} className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-200 transition">⚡ Fill 'Approved' Profile</button>
                 <button onClick={() => fillDemoData("MISMATCH")} className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-200 transition">⚡ Fill 'Mismatch' Profile</button>
                 <button onClick={() => fillDemoData("REJECTED")} className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-200 transition">⚡ Fill 'Rejected' Profile</button>
+                <button onClick={() => fillDemoData("FRAUD_LOCKOUT")} className="rounded-xl border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-200 transition">⚡ Fill 'Fraud' Profile</button>
               </div>
             </div>
           </motion.section>
@@ -1688,6 +1715,62 @@ function StudentDashboard() {
                       <div className="mt-3 rounded-lg border border-emerald-100 bg-white p-3 text-xs text-emerald-800">
                         These offers are recommended by the system. You do not need to choose anything for the demo flow.
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "DISBURSAL_COMPLETE" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border-2 border-emerald-500 bg-white p-6 shadow-lg shadow-emerald-500/10">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-500 mb-4">
+                        <CheckCircle2 className="h-10 w-10" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Loan Accepted</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage || "✅ Funding approved and disbursal completed."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "DISBURSAL_PENDING" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-slate-50 text-slate-500 mb-4">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Disbursal Processing</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-600">
+                        {resultMessage || "Funding approved. Disbursal is being processed."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "DISBURSAL_FAILED" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-rose-50 p-6 shadow-sm">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-rose-100 text-rose-700 mb-4">
+                        <XCircle className="h-10 w-10" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Bank Error</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage || "Disbursal failed due to a bank system error. Please wait or contact support."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "CLARIFICATION_REQUIRED" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-indigo-200 bg-white p-6 shadow-md">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-indigo-50 text-indigo-600 mb-4">
+                        <FileText className="h-8 w-8" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Clarification Required</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage || "Additional information is required. You will receive a message requesting clarification."}
+                      </p>
                     </div>
                   </div>
                 )}

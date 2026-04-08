@@ -68,7 +68,7 @@ function AdminDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const handleDecision = async (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD") => {
+  const handleDecision = async (userId: string, decision: "APPROVE" | "REJECT" | "REQUEST_REUPLOAD" | "REQUEST_CLARIFICATION") => {
     setActionLoading(true);
     try {
       // Demo cases are local-only (no backend mutation).
@@ -77,7 +77,13 @@ function AdminDashboard() {
           prev.map((c) => {
             if (c.userId !== userId) return c;
             const next =
-              decision === "APPROVE" ? "ADMIN_APPROVED" : decision === "REQUEST_REUPLOAD" ? "DOCS_REUPLOAD_REQUIRED" : "REJECTED";
+              decision === "APPROVE"
+                ? "ADMIN_APPROVED"
+                : decision === "REQUEST_REUPLOAD"
+                ? "DOCS_REUPLOAD_REQUIRED"
+                : decision === "REQUEST_CLARIFICATION"
+                ? "CLARIFICATION_REQUIRED"
+                : "REJECTED";
             return { ...c, journeyState: next, updatedAt: new Date().toISOString(), reasoning: `DEMO: Admin action ${decision}` };
           })
         );
@@ -176,7 +182,7 @@ function AdminDashboard() {
   };
 
   const tabData = useMemo(() => {
-    if (tab === "review") return cases.filter((x) => x.journeyState === "HITL_ESCALATION");
+    if (tab === "review") return cases.filter((x) => x.journeyState === "HITL_ESCALATION" || x.journeyState === "CLARIFICATION_REQUIRED");
     if (tab === "locked") return cases.filter((x) => x.journeyState === "FRAUD_LOCKOUT");
     if (tab === "approved") return cases.filter((x) => x.journeyState === "ADMIN_APPROVED");
     if (tab === "rejected") return cases.filter((x) => x.journeyState === "REJECTED");
@@ -200,7 +206,7 @@ function AdminDashboard() {
   }, [visibleCases, fundingFilter]);
 
   const visibleTabData = useMemo(() => {
-    if (tab === "review") return filteredCases.filter((x) => x.journeyState === "HITL_ESCALATION");
+    if (tab === "review") return filteredCases.filter((x) => x.journeyState === "HITL_ESCALATION" || x.journeyState === "CLARIFICATION_REQUIRED");
     if (tab === "locked") return filteredCases.filter((x) => x.journeyState === "FRAUD_LOCKOUT");
     if (tab === "approved") return filteredCases.filter((x) => x.journeyState === "ADMIN_APPROVED");
     if (tab === "rejected") return filteredCases.filter((x) => x.journeyState === "REJECTED");

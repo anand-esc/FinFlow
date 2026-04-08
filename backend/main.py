@@ -467,7 +467,7 @@ def get_admin_escalations():
         for d in docs:
             state = d.to_dict() or {}
             journey_state = state.get("journeyStatus", state.get("journeyState", "UNKNOWN"))
-            if journey_state not in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "ADMIN_APPROVED", "REJECTED"]:
+            if journey_state not in ["HITL_ESCALATION", "CLARIFICATION_REQUIRED", "FRAUD_LOCKOUT", "ADMIN_APPROVED", "REJECTED"]:
                 continue
 
             profile = state.get("profile", state.get("studentProfile", {})) or {}
@@ -514,6 +514,8 @@ def submit_admin_decision(user_id: str, request: AdminDecisionRequest):
         next_state = "ADMIN_APPROVED"
     elif decision == "REQUEST_REUPLOAD":
         next_state = "DOCS_REUPLOAD_REQUIRED"
+    elif decision == "REQUEST_CLARIFICATION":
+        next_state = "CLARIFICATION_REQUIRED"
     elif decision == "REJECT":
         next_state = "REJECTED"
     else:

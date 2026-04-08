@@ -150,16 +150,25 @@ def scholarship_matching_node(state: dict) -> dict:
             "fundingType": funding_type,
         }
 
-    # Auto: still produce scholarship matches; keep existing loan/disbursal behavior when eligible.
+    # Auto: still produce scholarship matches. IMPORTANT:
+    # - If the case is escalated, we must KEEP HITL_ESCALATION so it appears in Admin review.
+    # - We attach scholarship matches as a recommendation, but we do not "resolve" the state.
     if funding_type == "auto":
-        # If eligibility didn't score, recommend scholarship path.
         elig_status = state.get("journeyStatus")
-        if elig_status in ("HITL_ESCALATION", "REJECTED"):
+        if elig_status == "HITL_ESCALATION":
             return {
                 "options": options,
                 "scholarshipMatches": scholarship_matches,
                 "audit_trail": [audit],
-                "journeyStatus": "AUTO_SCHOLARSHIP_RECOMMENDED",
+                "journeyStatus": "HITL_ESCALATION",
+                "fundingType": funding_type,
+            }
+        if elig_status == "REJECTED":
+            return {
+                "options": options,
+                "scholarshipMatches": scholarship_matches,
+                "audit_trail": [audit],
+                "journeyStatus": "REJECTED",
                 "fundingType": funding_type,
             }
 
