@@ -10,6 +10,16 @@ export default {
         slate: {
           850: '#151e2e',
         },
+        indigo: {
+          550: '#5c51e0',
+        },
+        emerald: {
+          450: '#10b981',
+        }
+      },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
+        outfit: ['Outfit', 'sans-serif'],
       }
     },
   },

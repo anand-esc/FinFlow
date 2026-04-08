@@ -82,15 +82,15 @@ function AdminDashboard() {
   }, [tab, cases]);
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900">
-      <aside className="hidden w-72 border-r border-slate-200 bg-white p-4 lg:block">
-        <div className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-gradient-to-tr from-indigo-500 to-emerald-400">
+    <div className="flex min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-indigo-200">
+      <aside className="hidden w-72 border-r border-white/60 bg-white/80 p-4 backdrop-blur-xl lg:block">
+        <div className="mb-6 flex items-center gap-3 rounded-xl border border-white/60 bg-white/50 p-3 shadow-sm backdrop-blur-md">
+          <div className="grid h-10 w-10 place-items-center rounded-lg bg-gradient-to-tr from-rose-500 to-indigo-500">
             <Shield className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-900">SPARC Admin</p>
-            <p className="text-xs text-slate-500">Aligned with student flow</p>
+            <p className="font-outfit text-lg font-black text-slate-900 leading-tight">SPARC Admin</p>
+            <p className="text-xs font-semibold text-slate-500">Secured Instance</p>
           </div>
         </div>
 
@@ -106,12 +106,13 @@ function AdminDashboard() {
         </button>
       </aside>
 
-      <main className="flex-1">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6">
+      <main className="flex-1 relative">
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-100/30 via-slate-50 to-transparent z-0"></div>
+        <header className="sticky top-0 z-20 border-b border-white/60 bg-white/70 px-4 py-5 backdrop-blur-xl sm:px-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold text-slate-900">Multi-layer Case Resolution</h2>
-              <p className="text-xs text-slate-500">Fraud layers, trust score, and decision history in one place</p>
+              <h2 className="font-outfit text-2xl font-bold text-slate-900">Multi-layer Case Resolution</h2>
+              <p className="text-sm font-medium text-slate-500">Fraud layers, trust score, and decision history</p>
             </div>
             <button
               onClick={() => setSimpleMode((p) => !p)}
@@ -124,7 +125,7 @@ function AdminDashboard() {
           </div>
         </header>
 
-        <div className="p-4 sm:p-6">
+        <div className="relative z-10 p-4 sm:p-6">
           <AnimatePresence mode="wait">
             {(tab === "review" || tab === "locked") && (
               <motion.div key={tab} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-4">
@@ -202,9 +203,9 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone: 
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : "border-indigo-200 bg-indigo-50 text-indigo-700";
   return (
-    <div className={`rounded-xl border p-5 ${style}`}>
-      <p className="text-xs font-semibold uppercase tracking-wider">{label}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
+    <div className={`rounded-2xl border p-6 shadow-sm backdrop-blur-sm ${style}`}>
+      <p className="text-xs font-bold uppercase tracking-widest">{label}</p>
+      <p className="mt-2 font-outfit text-4xl font-black">{value}</p>
     </div>
   );
 }

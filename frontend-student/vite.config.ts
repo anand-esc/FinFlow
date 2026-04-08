@@ -20,12 +20,30 @@ export default defineConfig({
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
+          }
+        ],
+        shortcuts: [
+          {
+            name: "Upload Documents",
+            short_name: "Upload",
+            description: "Quickly upload missing documents",
+            url: "/?step=documents",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
+            name: "Check Status",
+            short_name: "Status",
+            description: "View application status",
+            url: "/?step=result",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
           }
         ]
       }
