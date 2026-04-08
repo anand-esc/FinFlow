@@ -27,7 +27,7 @@ type AdminCase = {
 function AdminDashboard() {
   const [tab, setTab] = useState<TabKey>("review");
   const [simpleMode, setSimpleMode] = useState(true);
-  const [demoMode, setDemoMode] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
   const [fundingFilter, setFundingFilter] = useState<"all" | "loan" | "scholarship" | "auto">("all");
   const [cases, setCases] = useState<AdminCase[]>([]);
   const [loading, setLoading] = useState(true);
