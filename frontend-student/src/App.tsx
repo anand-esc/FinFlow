@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import {
@@ -23,6 +22,8 @@ import {
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { StudentLogin } from "./components/StudentLogin";
+import { AppLock } from "./components/AppLock";
+import { LandingPage } from "./components/landing/LandingPage";
 
 
 type WizardStep = "home" | "documents" | "profile" | "bank" | "review" | "result";
@@ -165,8 +166,15 @@ async function compressImage(blob: Blob): Promise<Blob> {
 
 function StudentDashboard() {
   const { user, logout } = useAuth();
-  const [step, setStep] = useState<WizardStep>("home");
   const [demoScenario, setDemoScenario] = useState<"APPROVED" | "MISMATCH" | "REJECTED">("APPROVED");
+  const [step, setStep] = useState<WizardStep>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stepParam = params.get('step') as WizardStep;
+    if (stepParam && ["home", "documents", "profile", "bank", "review", "result"].includes(stepParam)) {
+      return stepParam;
+    }
+    return "home";
+  });
   const [docs, setDocs] = useState<CapturedDoc[]>(
     DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" }))
   );
@@ -639,18 +647,39 @@ function StudentDashboard() {
       const state = data?.newState || {};
       const status = state.journeyState || state.journeyStatus || "UNKNOWN";
 
+      const triggerPushNotification = (title: string, body: string) => {
+        if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+          navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification(title, {
+              body,
+              icon: '/pwa-192x192.png'
+            });
+          }).catch(() => {
+            new Notification(title, { body, icon: '/pwa-192x192.png' });
+          });
+        } else if ('Notification' in window && Notification.permission === 'granted') {
+           new Notification(title, { body, icon: '/pwa-192x192.png' });
+        }
+      };
+
       if (status === "FRAUD_LOCKOUT") {
         setResultStatus("error");
         setResultMessage("Security review flagged this application for manual intervention. Our team will contact you shortly.");
+<<<<<<< HEAD
       } else if (status === "REJECTED") {
         setResultStatus("error");
         setResultMessage("Unfortunately, your application was declined based on core policy requirements.");
+=======
+        triggerPushNotification("SPARC Security Alert", "Your application has been flagged for manual intervention.");
+>>>>>>> pwa-edits
       } else if (status === "HITL_ESCALATION") {
         setResultStatus("warning");
         setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
+        triggerPushNotification("Application Under Review", "Your profile has been moved to priority counselor review.");
       } else {
         setResultStatus("success");
         setResultMessage("Application submitted successfully. You are now progressing to eligibility and funding steps.");
+        triggerPushNotification("Application Approved", "Your application was successful. Progressing to funding.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -743,29 +772,30 @@ function StudentDashboard() {
   const activeStepIndex = stepOrder.indexOf(step);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200/60 via-slate-50 to-slate-100" />
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400">
-              <GraduationCap className="h-5 w-5 text-white" />
+    <AppLock>
+      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200/60 via-slate-50 to-slate-100" />
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400">
+                <GraduationCap className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold tracking-wide text-slate-900">SPARC Student Flow</p>
+                <p className="text-xs text-slate-500">Simple. Secure. Step-by-step onboarding.</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold tracking-wide text-slate-900">SPARC Student Flow</p>
-              <p className="text-xs text-slate-500">Simple. Secure. Step-by-step onboarding.</p>
-            </div>
+            <button
+              onClick={logout}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              <span className="inline-flex items-center gap-2">
+                <LogOut className="h-4 w-4" /> Sign out
+              </span>
+            </button>
           </div>
-          <button
-            onClick={logout}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            <span className="inline-flex items-center gap-2">
-              <LogOut className="h-4 w-4" /> Sign out
-            </span>
-          </button>
-        </div>
-      </header>
+        </header>
       
       {/* PWA Install Banner */}
       <AnimatePresence>
@@ -874,7 +904,12 @@ function StudentDashboard() {
                 (self or parent). Our fraud and eligibility engines run after submission.
               </p>
               <button
-                onClick={() => setStep("documents")}
+                onClick={() => {
+                  setStep("documents");
+                  if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                  }
+                }}
                 className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
               >
                 Start Application <ArrowRight className="h-4 w-4" />
@@ -1405,21 +1440,34 @@ function StudentDashboard() {
         </div>
       </main>
     </div>
+    </AppLock>
   );
 }
 
-function StudentRoute({ children }: { children: ReactNode }) {
+function AuthController({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (!user) return <StudentLogin />;
+  const [showLogin, setShowLogin] = useState(false);
+  
+  if (!user) {
+    return (
+      <>
+        <LandingPage onStartJourney={() => setShowLogin(true)} />
+        <AnimatePresence>
+          {showLogin && <StudentLogin onClose={() => setShowLogin(false)} />}
+        </AnimatePresence>
+      </>
+    );
+  }
+  
   return <>{children}</>;
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <StudentRoute>
+      <AuthController>
         <StudentDashboard />
-      </StudentRoute>
+      </AuthController>
     </AuthProvider>
   );
 }
