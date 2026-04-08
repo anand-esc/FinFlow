@@ -69,6 +69,13 @@ function pick<T>(rng: () => number, arr: T[]) {
   return arr[Math.floor(rng() * arr.length)];
 }
 
+function shuffleInPlace<T>(rng: () => number, arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 function isoMinutesAgo(minutesAgo: number) {
   const d = new Date(Date.now() - minutesAgo * 60_000);
   return d.toISOString();
@@ -144,10 +151,19 @@ function templateForState(state: AdminCase["journeyState"], rng: () => number) {
 export function generateDemoCases(seed = 42): AdminCase[] {
   const rng = mulberry32(seed);
   const out: AdminCase[] = [];
+  const namePool = FIRST.flatMap((f) => LAST.map((l) => `${f} ${l}`));
+  shuffleInPlace(rng, namePool);
+  let nameIndex = 0;
+
+  const nextName = () => {
+    const name = namePool[nameIndex % namePool.length];
+    nameIndex += 1;
+    return name;
+  };
 
   const mk = (journeyState: AdminCase["journeyState"], count: number) => {
     for (let i = 0; i < count; i++) {
-      const name = `${pick(rng, FIRST)} ${pick(rng, LAST)}`;
+      const name = nextName();
       const t = templateForState(journeyState, rng);
       out.push({
         id: makeId(rng),

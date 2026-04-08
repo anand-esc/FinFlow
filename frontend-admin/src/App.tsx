@@ -113,14 +113,17 @@ function AdminDashboard() {
     setDrawerAnalysis("");
     try {
       if (String(userId).startsWith("demo_user_")) {
+        const demoCase = visibleCases.find((c) => c.userId === userId);
+        const applicantName = demoCase?.applicant || "Demo Student";
+        const caseState = demoCase?.journeyState || "HITL_ESCALATION";
         // Local demo drawer: show lightweight synthetic log.
         const now = new Date().toISOString();
         setDrawerData({
           userId,
-          journeyState: "HITL_ESCALATION",
+          journeyState: caseState,
           updatedAt: now,
           profile: {
-            fullName: "Demo Applicant",
+            fullName: applicantName,
             monthlyIncome: "45000",
             existingEmis: "12000",
             loanAmountRequired: "1200000",
@@ -189,7 +192,8 @@ function AdminDashboard() {
     return [];
   }, [tab, cases]);
 
-  const demoCases = useMemo(() => generateDemoCases(2026), []);
+  // Generate a fresh synthetic demo dataset whenever demo mode is toggled.
+  const demoCases = useMemo(() => generateDemoCases(Date.now()), [demoMode]);
   const visibleCases = useMemo(() => {
     if (!demoMode) return cases;
     const realIds = new Set(cases.map((c) => c.userId));

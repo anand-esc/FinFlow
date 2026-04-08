@@ -85,6 +85,14 @@ const INITIAL_BANK: BankState = {
   ownerType: "self", accountHolderName: "", bankName: "", accountLast4: "", ifscCode: "",
 };
 
+const DEMO_PERSONAS = [
+  { fullName: "Aarav Mehta", city: "Mumbai", phone: "9876512340", dateOfBirth: "2001-08-15", bankName: "HDFC Bank", ifscCode: "HDFC0001234", accountLast4: "1234" },
+  { fullName: "Diya Nair", city: "Bangalore", phone: "9876523451", dateOfBirth: "2002-04-21", bankName: "SBI", ifscCode: "SBIN0001234", accountLast4: "2345" },
+  { fullName: "Kabir Sharma", city: "Delhi", phone: "9876534562", dateOfBirth: "2000-12-09", bankName: "ICICI Bank", ifscCode: "ICIC0001234", accountLast4: "3456" },
+  { fullName: "Meera Iyer", city: "Chennai", phone: "9876545673", dateOfBirth: "2001-06-30", bankName: "Axis Bank", ifscCode: "UTIB0001234", accountLast4: "4567" },
+  { fullName: "Vihaan Rao", city: "Hyderabad", phone: "9876556784", dateOfBirth: "2002-02-14", bankName: "Kotak Bank", ifscCode: "KKBK0001234", accountLast4: "5678" },
+];
+
 function toDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
@@ -341,8 +349,21 @@ function StudentDashboard() {
     setQualityByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { blurScore: 0, glarePercent: 0, ok: true }])) as any);
     setOcrByDoc(Object.fromEntries(DOC_FLOW.map(d => [d.type, { confidence: 0.99, fields: [] }])) as any);
 
-    let p = { ...INITIAL_PROFILE, fullName: "Maya Sharma", dateOfBirth: "2001-08-15", phone: "9876543210", city: "Bangalore" };
-    setBank({ ownerType: "self", accountHolderName: "Maya Sharma", bankName: "HDFC Bank", accountLast4: "1234", ifscCode: "HDFC0001234" });
+    const persona = DEMO_PERSONAS[Math.floor(Math.random() * DEMO_PERSONAS.length)];
+    let p = {
+      ...INITIAL_PROFILE,
+      fullName: persona.fullName,
+      dateOfBirth: persona.dateOfBirth,
+      phone: persona.phone,
+      city: persona.city,
+    };
+    setBank({
+      ownerType: "self",
+      accountHolderName: persona.fullName,
+      bankName: persona.bankName,
+      accountLast4: persona.accountLast4,
+      ifscCode: persona.ifscCode,
+    });
 
     if (scenario === "APPROVED") {
       p = { ...p, educationLevel: "PG", backlogs: "0", gapYears: "0", courseDuration: "2", universityRanking: "Top Tier", monthlyIncome: "120000", employmentType: "Salaried", employerType: "MNC", existingEmis: "5000", creditCardUsage: "15", cibilScore: "780", hasCoApplicant: true, coApplicantCibil: "810", coApplicantJobStability: "10", coApplicantEmployer: "Infosys", loanAmountRequired: "800000", loanTenure: "60", collateral: "No", collateralType: "" };
@@ -359,6 +380,7 @@ function StudentDashboard() {
 
   const applyDemoFillMissing = (scenario: "APPROVED" | "MISMATCH" | "REJECTED" | "FRAUD_LOCKOUT") => {
     setDemoScenario(scenario as any);
+    const persona = DEMO_PERSONAS[Math.floor(Math.random() * DEMO_PERSONAS.length)];
 
     // 1) Ensure docs are demo-verified if missing (keeps showcase fast at any step)
     setDocs((prev) =>
@@ -381,10 +403,10 @@ function StudentDashboard() {
     // 2) Fill profile only where blank
     setProfile((p0) => {
       const base = { ...p0 };
-      if (!base.fullName) base.fullName = "Maya Sharma";
-      if (!base.dateOfBirth) base.dateOfBirth = "2001-08-15";
-      if (!base.phone) base.phone = "9876543210";
-      if (!base.city) base.city = "Bangalore";
+      if (!base.fullName) base.fullName = persona.fullName;
+      if (!base.dateOfBirth) base.dateOfBirth = persona.dateOfBirth;
+      if (!base.phone) base.phone = persona.phone;
+      if (!base.city) base.city = persona.city;
 
       if (scenario === "APPROVED") {
         return {
@@ -430,6 +452,18 @@ function StudentDashboard() {
           collateral: base.collateral || "No",
         };
       }
+      if (scenario === "FRAUD_LOCKOUT") {
+        return {
+          ...base,
+          fullName: "Fraud Lockout Demo",
+          educationLevel: base.educationLevel || "PG",
+          backlogs: base.backlogs || "0",
+          gapYears: base.gapYears || "0",
+          courseDuration: base.courseDuration || "2",
+          universityRanking: base.universityRanking || "Top Tier",
+          monthlyIncome: base.monthlyIncome || "120000",
+        };
+      }
       return {
         ...base,
         educationLevel: base.educationLevel || "Diploma",
@@ -453,10 +487,10 @@ function StudentDashboard() {
     // 3) Fill bank only where blank
     setBank((b0) => {
       const b = { ...b0 };
-      if (!b.accountHolderName) b.accountHolderName = "Maya Sharma";
-      if (!b.bankName) b.bankName = "HDFC Bank";
-      if (!b.accountLast4) b.accountLast4 = "1234";
-      if (!b.ifscCode) b.ifscCode = "HDFC0001234";
+      if (!b.accountHolderName) b.accountHolderName = persona.fullName;
+      if (!b.bankName) b.bankName = persona.bankName;
+      if (!b.accountLast4) b.accountLast4 = persona.accountLast4;
+      if (!b.ifscCode) b.ifscCode = persona.ifscCode;
       return b;
     });
   };
