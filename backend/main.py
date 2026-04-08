@@ -256,15 +256,29 @@ def trigger_agent_workflow(request: AgentTriggerRequest):
         doc_ref.set(current_state)
     else:
         current_state = doc.to_dict() or {}
+
+    # Restricted mode: do not allow new orchestration while under fraud lockout.
+    # User can still login, view state, explore, and contact support.
+    existing_status = (current_state or {}).get("journeyStatus", (current_state or {}).get("journeyState", "UNKNOWN"))
+    if existing_status == "FRAUD_LOCKOUT":
+        raise HTTPException(
+            status_code=403,
+            detail="RESTRICTED_MODE: Account is under fraud review. Submission is disabled until admin updates the case.",
+        )
     
+    funding_type = (request.payload.get("fundingType") or request.payload.get("funding_type") or "loan").lower().strip()
+    if funding_type not in ("loan", "scholarship", "auto"):
+        funding_type = "loan"
+
     langgraph_state = {
         "userId": request.user_id,
         # Always start fresh — never carry over a previous FRAUD_LOCKOUT or REJECTED status
         "journeyStatus": "START",
-        "profile": request.payload.get("student_profile", {}),
+        "profile": {**(request.payload.get("student_profile", {}) or {}), "fundingType": funding_type},
         "documents": request.payload.get("new_documents") or [],
         "options": [],
-        "audit_trail": []
+        "audit_trail": [],
+        "fundingType": funding_type,
     }
     
     try:
@@ -288,6 +302,8 @@ def trigger_agent_workflow(request: AgentTriggerRequest):
             "studentProfile": final_state["profile"],
             "documentVault": final_state["documents"],
             "options": final_state.get("options", []),
+            "scholarshipMatches": final_state.get("scholarshipMatches"),
+            "fundingType": final_state.get("fundingType", final_state.get("profile", {}).get("fundingType", funding_type)),
             "audit_trail": final_state["audit_trail"],
             "agentMemory": final_state["audit_trail"],
             "langsmithTags": [f"finflow", f"user:{request.user_id}", f"event:{request.event}"],
@@ -459,6 +475,8 @@ def get_admin_escalations():
             latest_reason = memory[-1].get("reasoning", "") if memory else ""
             trust_score = profile.get("trustScore", state.get("trustScore", 0))
             alt_score = profile.get("alternativeCreditScore", 0)
+            funding_type = (state.get("fundingType") or profile.get("fundingType") or "loan")
+            schol = state.get("scholarshipMatches")
 
             cases.append({
                 "userId": state.get("userId", d.id),
@@ -467,6 +485,8 @@ def get_admin_escalations():
                 "journeyState": journey_state,
                 "trustScore": trust_score,
                 "altScore": alt_score,
+                "fundingType": funding_type,
+                "scholarshipMatchScore": schol.get("match_score") if isinstance(schol, dict) else None,
                 "riskLevel": profile.get("fraudRiskLevel", "UNKNOWN"),
                 "reasoning": latest_reason,
                 "updatedAt": state.get("updatedAt"),

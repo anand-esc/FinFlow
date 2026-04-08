@@ -16,6 +16,8 @@ type AdminCase = {
   journeyState: string;
   trustScore: number;
   altScore: number;
+  fundingType?: string;
+  scholarshipMatchScore?: number | null;
   reasoning?: string;
   riskLevel?: string;
   updatedAt?: string;
@@ -26,6 +28,7 @@ function AdminDashboard() {
   const [tab, setTab] = useState<TabKey>("review");
   const [simpleMode, setSimpleMode] = useState(true);
   const [demoMode, setDemoMode] = useState(true);
+  const [fundingFilter, setFundingFilter] = useState<"all" | "loan" | "scholarship" | "auto">("all");
   const [cases, setCases] = useState<AdminCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -191,13 +194,18 @@ function AdminDashboard() {
     return merged;
   }, [cases, demoCases, demoMode]);
 
+  const filteredCases = useMemo(() => {
+    if (fundingFilter === "all") return visibleCases;
+    return visibleCases.filter((c) => String(c.fundingType || "loan").toLowerCase() === fundingFilter);
+  }, [visibleCases, fundingFilter]);
+
   const visibleTabData = useMemo(() => {
-    if (tab === "review") return visibleCases.filter((x) => x.journeyState === "HITL_ESCALATION");
-    if (tab === "locked") return visibleCases.filter((x) => x.journeyState === "FRAUD_LOCKOUT");
-    if (tab === "approved") return visibleCases.filter((x) => x.journeyState === "ADMIN_APPROVED");
-    if (tab === "rejected") return visibleCases.filter((x) => x.journeyState === "REJECTED");
+    if (tab === "review") return filteredCases.filter((x) => x.journeyState === "HITL_ESCALATION");
+    if (tab === "locked") return filteredCases.filter((x) => x.journeyState === "FRAUD_LOCKOUT");
+    if (tab === "approved") return filteredCases.filter((x) => x.journeyState === "ADMIN_APPROVED");
+    if (tab === "rejected") return filteredCases.filter((x) => x.journeyState === "REJECTED");
     return [];
-  }, [tab, visibleCases]);
+  }, [tab, filteredCases]);
 
   return (
     <div className="flex min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-indigo-200">
@@ -234,6 +242,16 @@ function AdminDashboard() {
               <p className="text-sm font-medium text-slate-500">Fraud layers, trust score, and decision history</p>
             </div>
             <div className="flex items-center gap-2">
+              <select
+                value={fundingFilter}
+                onChange={(e) => setFundingFilter(e.target.value as any)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700"
+              >
+                <option value="all">All funding</option>
+                <option value="loan">Loan</option>
+                <option value="scholarship">Scholarship</option>
+                <option value="auto">Auto</option>
+              </select>
               <button
                 onClick={() => setDemoMode((p) => !p)}
                 className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${

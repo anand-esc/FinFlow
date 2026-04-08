@@ -20,6 +20,7 @@ class JourneyState(TypedDict):
     documents: List[Dict[str, Any]]
     options: List[Dict[str, Any]]
     audit_trail: Annotated[List[AuditTrail], operator.add]
+    fundingType: str  # loan | scholarship | auto (optional, for routing)
     # New: Fraud detection outputs
     trustScore: float
     fraudRiskLevel: str  # LOW, MEDIUM, HIGH, CRITICAL
@@ -45,8 +46,18 @@ def route_after_document(state: JourneyState):
         return "end"
 
 def route_after_eligibility(state: JourneyState):
-    if state.get("journeyStatus") in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "REJECTED"]:
-        return "end" # Escalate to human or halt autonomy
+    """
+    Minimal extension:
+    - loan: preserve existing behavior (halt on HITL/REJECTED)
+    - scholarship/auto: continue into scholarship agent even if bank/policy rejected,
+      so we can still produce scholarship matches or auto comparisons.
+    """
+    status = state.get("journeyStatus")
+    funding_type = (state.get("fundingType") or state.get("profile", {}).get("fundingType") or "loan").lower().strip()
+    if funding_type in ["scholarship", "auto"]:
+        return "continue"
+    if status in ["HITL_ESCALATION", "FRAUD_LOCKOUT", "REJECTED"]:
+        return "end"  # preserve existing halting for loan flow
     return "continue"
 
 def build_workflow():

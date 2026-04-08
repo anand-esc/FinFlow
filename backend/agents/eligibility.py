@@ -92,6 +92,11 @@ def eligibility_scoring_node(state: dict) -> dict:
         prob = 10.0
         reasoning = "Critically rejected by central policy."
 
+    # Persist signals for downstream scholarship/auto matching (non-breaking additive fields)
+    profile["policyApproved"] = policy_approved
+    profile["bankApproved"] = bank_approved
+    profile["foir"] = round(foir, 1)
+
     audit_trail = [{
         "id": f"elig_{uuid.uuid4().hex[:8]}",
         "timestamp": datetime.utcnow().isoformat(),

@@ -20,11 +20,11 @@ import {
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { StudentLogin } from "./components/StudentLogin";
-import { AppLock } from "./components/AppLock";
 import { LandingPage } from "./components/landing/LandingPage";
 
+type FundingType = "loan" | "scholarship" | "auto";
 
-type WizardStep = "home" | "documents" | "profile" | "bank" | "review" | "result";
+type WizardStep = "home" | "explore" | "documents" | "profile" | "bank" | "review" | "result";
 type DocType = "aadhaar" | "utility" | "pan" | "admission" | "marksheet" | "income_proof" | "bank_statement";
 
 type CapturedDoc = {
@@ -39,6 +39,7 @@ type CapturedDoc = {
 type OCRField = { key: string; label: string; value: string; confidence: number };
 
 type ProfileState = {
+  fundingType: FundingType;
   fullName: string; dateOfBirth: string; phone: string; city: string;
   educationLevel: string; monthlyHouseholdIncome: string; cibilScore: string;
   // Personal Extended
@@ -71,6 +72,7 @@ const DOC_FLOW: Array<{ type: DocType; label: string; subtitle: string }> = [
 ];
 
 const INITIAL_PROFILE: ProfileState = {
+  fundingType: "auto",
   fullName: "", dateOfBirth: "", phone: "", city: "", educationLevel: "", monthlyHouseholdIncome: "", cibilScore: "",
   panNumber: "", maritalStatus: "", dependents: "",
   backlogs: "", gapYears: "", courseDuration: "", universityRanking: "",
@@ -168,7 +170,7 @@ function StudentDashboard() {
   const [step, setStep] = useState<WizardStep>(() => {
     const params = new URLSearchParams(window.location.search);
     const stepParam = params.get('step') as WizardStep;
-    if (stepParam && ["home", "documents", "profile", "bank", "review", "result"].includes(stepParam)) {
+    if (stepParam && ["home", "explore", "documents", "profile", "bank", "review", "result"].includes(stepParam)) {
       return stepParam;
     }
     return "home";
@@ -184,7 +186,45 @@ function StudentDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState("");
   const [journeyState, setJourneyState] = useState<string>("UNKNOWN");
+  const [restrictedReason, setRestrictedReason] = useState<string>("");
+  const [scholarshipMatches, setScholarshipMatches] = useState<any>(null);
+  const [serverFundingType, setServerFundingType] = useState<FundingType>("auto");
+
+  const isLocked = journeyState === "FRAUD_LOCKOUT";
+  const isScholarship = profile.fundingType === "scholarship";
   
+  // Always keep local UI in sync with server-side status (for restricted-mode UX)
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:8000";
+        const res = await fetch(`${BACKEND_URL}/api/state/${user.uid}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const jStatus = data.journeyStatus || data.journeyState || "UNKNOWN";
+        setJourneyState(jStatus);
+        setServerFundingType((data.fundingType || data.profile?.fundingType || data.studentProfile?.fundingType || "auto") as FundingType);
+        setScholarshipMatches(data.scholarshipMatches || null);
+        const memory = data.agentMemory || data.audit_trail || [];
+        const last = Array.isArray(memory) && memory.length ? memory[memory.length - 1] : null;
+        setRestrictedReason(String(last?.reasoning || ""));
+      } catch {
+        // ignore polling failures
+      }
+    };
+
+    const id = setInterval(poll, 5000);
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [user]);
+
   useEffect(() => {
     if (step !== "result" || isSubmitting || !user) return;
     
@@ -196,6 +236,8 @@ function StudentDashboard() {
           const data = await res.json();
           const jStatus = data.journeyStatus || data.journeyState || "UNKNOWN";
           setJourneyState(jStatus);
+          setServerFundingType((data.fundingType || data.profile?.fundingType || data.studentProfile?.fundingType || serverFundingType) as FundingType);
+          setScholarshipMatches(data.scholarshipMatches || scholarshipMatches);
           
           if (jStatus === "ADMIN_APPROVED") {
             setResultMessage("Your application has been manually approved by the administration. Disbursal initiated.");
@@ -204,9 +246,13 @@ function StudentDashboard() {
           } else if (jStatus === "DOCS_REUPLOAD_REQUIRED") {
             setResultMessage("The administration has requested that you re-upload certain documents for clearer verification.");
           } else if (jStatus === "FRAUD_LOCKOUT") {
-            setResultMessage("Account locked. Critical security anomaly detected in your document submission. Please contact compliance.");
+            setResultMessage("🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.");
           } else if (jStatus === "HITL_ESCALATION" || jStatus === "START") {
             setResultMessage("Your application is currently under manual review by a risk officer.");
+          } else if (jStatus === "SCHOLARSHIP_MATCHED") {
+            setResultMessage("Scholarship matching completed. Review eligible schemes below.");
+          } else if (jStatus === "AUTO_SCHOLARSHIP_RECOMMENDED") {
+            setResultMessage("Auto mode recommends scholarship-first based on your profile. Review eligible schemes below.");
           }
         }
       } catch(e) { }
@@ -422,7 +468,9 @@ function StudentDashboard() {
 
   const canContinueToProfile = useMemo(() => docs.every((d) => Boolean(d.blob)), [docs]);
 
-  const profileComplete = Boolean(profile.fullName.trim() && profile.monthlyIncome && profile.loanAmountRequired);
+  const profileComplete = isScholarship
+    ? Boolean(profile.fullName.trim() && profile.monthlyIncome && profile.educationLevel)
+    : Boolean(profile.fullName.trim() && profile.monthlyIncome && profile.loanAmountRequired);
 
   const bankComplete = Boolean(
     bank.accountHolderName.trim() &&
@@ -430,6 +478,7 @@ function StudentDashboard() {
       /^\d{4}$/.test(bank.accountLast4) &&
       /^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(bank.ifscCode.trim().toUpperCase())
   );
+  const bankRequired = !isScholarship;
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -620,6 +669,12 @@ function StudentDashboard() {
 
   const submitFullJourney = async () => {
     if (!user) return;
+    if (isLocked) {
+      setStep("result");
+      setResultMessage("🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.");
+      setJourneyState("FRAUD_LOCKOUT");
+      return;
+    }
     setIsSubmitting(true);
     setStep("result");
     try {
@@ -665,6 +720,7 @@ function StudentDashboard() {
           payload: {
             new_documents: uploadedDocs,
             student_profile: profile,
+            fundingType: profile.fundingType,
             bank_owner_type: bank.ownerType,
             declared_cibil: profile.cibilScore,
           },
@@ -673,6 +729,11 @@ function StudentDashboard() {
       
       if (!res.ok) {
          const respText = await res.text();
+         if (res.status === 403 && respText.includes("RESTRICTED_MODE")) {
+           setResultMessage("🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.");
+           setJourneyState("FRAUD_LOCKOUT");
+           return;
+         }
          throw new Error(`Orchestration failed: ${res.status} ${respText}`);
       }
       
@@ -785,11 +846,10 @@ function StudentDashboard() {
     return Math.max(300, Math.min(900, score));
   }, [completedDocs, profile.educationLevel, profile.city, profile.phone, bankComplete, profile.cibilScore]);
 
-  const stepOrder: WizardStep[] = ["home", "documents", "profile", "bank", "review", "result"];
+  const stepOrder: WizardStep[] = ["home", "explore", "documents", "profile", "bank", "review", "result"];
   const activeStepIndex = stepOrder.indexOf(step);
 
   return (
-    <AppLock>
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
         <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-200/60 via-slate-50 to-slate-100" />
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
@@ -835,6 +895,33 @@ function StudentDashboard() {
       </AnimatePresence>
 
       <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">
+        {isLocked && (
+          <div className="mb-5 rounded-2xl border border-rose-300 bg-rose-50 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="max-w-3xl">
+                <p className="text-xs font-semibold uppercase tracking-wider text-rose-800">Restricted Mode</p>
+                <p className="mt-1 text-sm font-semibold text-rose-900">
+                  🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.
+                </p>
+                {restrictedReason && <p className="mt-1 text-xs text-rose-800/90 whitespace-pre-wrap">{restrictedReason}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setStep("explore")}
+                  className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
+                >
+                  Explore Funding
+                </button>
+                <a
+                  href="mailto:support@finflow.ai?subject=FinFlow%20Support%20Request"
+                  className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-xs font-bold text-rose-900 hover:bg-rose-200"
+                >
+                  Contact Support
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
         {(step === "profile" || step === "bank" || step === "review" || step === "result") && (
           <div className="mb-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -922,14 +1009,15 @@ function StudentDashboard() {
               </p>
               <button
                 onClick={() => {
-                  setStep("documents");
+                  setStep("explore");
                   if ('Notification' in window && Notification.permission === 'default') {
                     Notification.requestPermission();
                   }
                 }}
-                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={false}
               >
-                Start Application <ArrowRight className="h-4 w-4" />
+                Explore Funding <ArrowRight className="h-4 w-4" />
               </button>
             </div>
 
@@ -952,8 +1040,143 @@ function StudentDashboard() {
                 <button onClick={() => fillDemoData("APPROVED")} className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-200 transition">⚡ Fill 'Approved' Profile</button>
                 <button onClick={() => fillDemoData("MISMATCH")} className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-200 transition">⚡ Fill 'Mismatch' Profile</button>
                 <button onClick={() => fillDemoData("REJECTED")} className="rounded-xl border border-rose-300 bg-rose-100 px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-200 transition">⚡ Fill 'Rejected' Profile</button>
-                <button onClick={() => fillDemoData("FRAUD_LOCKOUT")} className="rounded-xl border border-red-300 bg-red-100 px-4 py-2 text-sm font-bold text-red-900 hover:bg-red-200 transition">🔒 Fill 'Cheat' Profile</button>
               </div>
+            </div>
+          </motion.section>
+        )}
+
+        {step === "explore" && (
+          <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Explore funding options</p>
+              <h2 className="text-3xl font-extrabold text-slate-900">Loans, NBFCs, and Scholarships — in one place.</h2>
+              <p className="mt-3 max-w-2xl text-sm text-slate-600">
+                Choose how you want to fund your education. Auto mode recommends the best path based on your profile.
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <select
+                  value={profile.fundingType}
+                  onChange={(e) => setProfile((p) => ({ ...p, fundingType: e.target.value as FundingType }))}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900"
+                >
+                  <option value="auto">Auto (Recommended)</option>
+                  <option value="loan">Loan</option>
+                  <option value="scholarship">Scholarship</option>
+                </select>
+                <button
+                  onClick={() => setStep("documents")}
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={isLocked}
+                >
+                  Apply Now
+                </button>
+                <button
+                  onClick={() => applyDemoFillMissing(demoScenario)}
+                  className="rounded-xl border border-orange-300 bg-orange-100 px-5 py-2.5 text-sm font-bold text-orange-800 hover:bg-orange-200"
+                >
+                  Check Eligibility (Demo)
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Banks</p>
+                <div className="mt-3 space-y-3 text-sm">
+                  {[
+                    { name: "HDFC Bank", rate: "8.5%–10.5%", max: "₹25L", type: "Education Loan" },
+                    { name: "SBI", rate: "8.1%–10.2%", max: "₹20L", type: "Student Loan" },
+                    { name: "ICICI", rate: "9.0%–11.0%", max: "₹30L", type: "Study Abroad Loan" },
+                  ].map((b) => (
+                    <div key={b.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="font-bold text-slate-900">{b.name}</p>
+                      <p className="text-xs text-slate-600">{b.type} • Rate {b.rate} • Max {b.max}</p>
+                      <button onClick={() => setStep("documents")} disabled={isLocked} className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40">
+                        Apply Now
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">NBFCs</p>
+                <div className="mt-3 space-y-3 text-sm">
+                  {[
+                    { name: "EduFin NBFC", tags: ["Fast approval", "No collateral", "High interest"], rate: "12%–16%" },
+                    { name: "QuickStudy Finance", tags: ["Fast approval", "Digital KYC"], rate: "11%–15%" },
+                    { name: "BrightFuture NBFC", tags: ["No collateral", "High interest"], rate: "13%–17%" },
+                  ].map((n) => (
+                    <div key={n.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="font-bold text-slate-900">{n.name}</p>
+                      <p className="text-xs text-slate-600">Rate {n.rate}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {n.tags.map((t) => (
+                          <span key={t} className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                      <button onClick={() => setStep("documents")} disabled={isLocked} className="mt-2 w-full rounded-lg bg-white border border-slate-300 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-40">
+                        Apply Now
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Scholarships</p>
+                <div className="mt-3 space-y-3 text-sm">
+                  {(scholarshipMatches?.eligible_schemes || [
+                    { id: "mock1", name: "National Merit Scholarship", eligibility: "Marks ≥ 85%", amount: 60000, type: "merit" },
+                    { id: "mock2", name: "Need-Based Tuition Support", eligibility: "Income ≤ ₹40,000/mo", amount: 75000, type: "need" },
+                    { id: "mock3", name: "NGO Community Education Fund", eligibility: "Needs verification", amount: 20000, type: "need" },
+                  ]).map((s: any) => (
+                    <div key={s.id || s.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="font-bold text-slate-900">{s.name}</p>
+                      <p className="text-xs text-slate-600">{s.eligibility} • ₹{s.amount}</p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 capitalize">
+                          {s.type || "merit/need"}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setProfile((p) => ({ ...p, fundingType: "scholarship" }));
+                            setStep("documents");
+                          }}
+                          disabled={isLocked}
+                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-40"
+                        >
+                          Check Eligibility
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-900">Smart Matching</p>
+              <p className="mt-2 text-sm text-indigo-900">
+                Recommended:{" "}
+                <span className="font-bold">
+                  {isLocked
+                    ? "Explore-only (Restricted)"
+                    : profile.fundingType === "auto"
+                    ? "Auto — compare Loan vs Scholarship"
+                    : profile.fundingType === "loan"
+                    ? "Loan — proceed with bank scoring"
+                    : "Scholarship — prioritize scheme matching"}
+                </span>
+              </p>
+              {profile.fundingType === "auto" && (
+                <p className="mt-1 text-xs text-indigo-800">
+                  If bank rules reject or mismatch, FinFlow automatically recommends scholarships and shows best option.
+                </p>
+              )}
             </div>
           </motion.section>
         )}
@@ -1143,6 +1366,28 @@ function StudentDashboard() {
                 </div>
               </div>
               <p className="mb-6 text-sm text-slate-600">Please provide detailed academic and financial backgrounds for accurate risk evaluation.</p>
+
+              <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Funding preference</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <select
+                    value={profile.fundingType}
+                    onChange={(e) => setProfile((p) => ({ ...p, fundingType: e.target.value as FundingType }))}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                  >
+                    <option value="auto">Auto (Recommended)</option>
+                    <option value="loan">Loan</option>
+                    <option value="scholarship">Scholarship</option>
+                  </select>
+                  <p className="text-xs text-slate-600">
+                    {profile.fundingType === "loan"
+                      ? "Loan mode runs bank rules and disbursal pipeline."
+                      : profile.fundingType === "scholarship"
+                      ? "Scholarship mode prioritizes scheme matching and skips lender disbursal."
+                      : "Auto mode compares both and recommends the best funding path."}
+                  </p>
+                </div>
+              </div>
               
               <div className="space-y-8">
                 {/* 1. Personal */}
@@ -1188,12 +1433,14 @@ function StudentDashboard() {
                     <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" placeholder="Employer Type (MNC, Startup, Govt)" value={profile.employerType} onChange={e => setProfile(p => ({ ...p, employerType: e.target.value }))} />
                     <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Existing EMIs (₹/mo)" value={profile.existingEmis} onChange={e => setProfile(p => ({ ...p, existingEmis: e.target.value }))} />
                     <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Credit Card Usage (%)" value={profile.creditCardUsage} onChange={e => setProfile(p => ({ ...p, creditCardUsage: e.target.value }))} />
-                    <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="CIBIL score (300-900)" value={profile.cibilScore} onChange={e => setProfile(p => ({ ...p, cibilScore: e.target.value }))} />
+                    {!isScholarship && (
+                      <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="CIBIL score (300-900)" value={profile.cibilScore} onChange={e => setProfile(p => ({ ...p, cibilScore: e.target.value }))} />
+                    )}
                   </div>
                 </div>
 
                 {/* 4. Co-Applicant */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                {!isScholarship && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600">4. Co-Applicant Form</h3>
                     <label className="flex items-center gap-2 text-sm font-bold text-indigo-600 cursor-pointer">
@@ -1209,10 +1456,10 @@ function StudentDashboard() {
                   ) : (
                     <p className="text-xs text-slate-500 italic">No co-applicant included. Adding a co-applicant can significantly improve approval chances.</p>
                   )}
-                </div>
+                </div>}
 
                 {/* 5. Loan Details */}
-                <div>
+                {!isScholarship && <div>
                   <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3 pb-1 border-b">5. Loan Details</h3>
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                     <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full" type="number" placeholder="Amount Required (₹)" value={profile.loanAmountRequired} onChange={e => setProfile(p => ({ ...p, loanAmountRequired: e.target.value }))} />
@@ -1224,12 +1471,14 @@ function StudentDashboard() {
                       <input className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm block w-full lg:col-span-3" placeholder="Collateral Type (e.g. Property, FD)" value={profile.collateralType} onChange={e => setProfile(p => ({ ...p, collateralType: e.target.value }))} />
                     )}
                   </div>
-                </div>
+                </div>}
               </div>
 
               <div className="mt-8 flex gap-2 pt-4 border-t">
                 <button onClick={() => setStep("documents")} className="rounded-lg border border-slate-300 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">Back</button>
-                <button onClick={() => setStep("bank")} disabled={!profileComplete} className="rounded-lg bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed">Continue to Bank Setup</button>
+                <button onClick={() => setStep("bank")} disabled={!profileComplete} className="rounded-lg bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-500 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  Continue to {bankRequired ? "Bank Setup" : "Review"}
+                </button>
               </div>
             </div>
           </motion.section>
@@ -1267,7 +1516,9 @@ function StudentDashboard() {
             </div>
             <div className="mt-6 flex gap-2">
               <button onClick={() => setStep("profile")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
-              <button onClick={() => setStep("review")} disabled={!bankComplete} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900 disabled:opacity-40">Continue</button>
+              <button onClick={() => setStep("review")} disabled={bankRequired ? !bankComplete : false} className="rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900 disabled:opacity-40">
+                Continue
+              </button>
             </div>
           </motion.section>
         )}
@@ -1291,16 +1542,29 @@ function StudentDashboard() {
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bank Setup</p>
-                <p className="mt-2 text-sm text-slate-700">{bank.ownerType === "self" ? "Your account" : "Parent/Guardian account"}</p>
-                <p className="text-sm text-slate-700">{bank.bankName} • XXXX{bank.accountLast4}</p>
-                <p className="text-sm text-slate-700">{bank.ifscCode}</p>
+                {bankRequired ? (
+                  <>
+                    <p className="mt-2 text-sm text-slate-700">{bank.ownerType === "self" ? "Your account" : "Parent/Guardian account"}</p>
+                    <p className="text-sm text-slate-700">{bank.bankName} • XXXX{bank.accountLast4}</p>
+                    <p className="text-sm text-slate-700">{bank.ifscCode}</p>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-700">Not required for scholarship-first flow.</p>
+                )}
               </div>
             </div>
+
+            {isLocked && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                🚫 Your account is under review due to document mismatch. Please contact support or wait for admin approval.
+              </div>
+            )}
 
             <div className="mt-6 flex gap-2">
               <button onClick={() => setStep("bank")} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700">Back</button>
               <button
                 onClick={submitFullJourney}
+                disabled={isLocked}
                 className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900"
               >
                 Submit Application <ArrowRight className="h-4 w-4" />
@@ -1377,16 +1641,76 @@ function StudentDashboard() {
                 )}
 
                 {journeyState === "FRAUD_LOCKOUT" && (
-                  <div className="mx-auto max-w-xl rounded-2xl border-2 border-red-900 bg-slate-900 p-6 shadow-2xl">
+                  <div className="mx-auto max-w-xl rounded-2xl border border-rose-300 bg-rose-50 p-6 shadow-sm">
                     <div className="flex flex-col items-center text-center">
-                      <div className="grid h-20 w-20 place-items-center rounded-full bg-red-950 text-red-500 mb-4 shadow-[0_0_30px_rgba(220,38,38,0.4)]">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-rose-100 text-rose-700 mb-4">
                         <Lock className="h-10 w-10" />
                       </div>
-                      <h2 className="font-outfit text-2xl font-black text-white uppercase tracking-widest text-red-50">Security Lockout</h2>
-                      <p className="mt-3 text-sm font-medium text-red-200">
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Restricted Mode</h2>
+                      <p className="mt-3 text-sm font-medium text-slate-700">
                         {resultMessage}
                       </p>
-                      <button className="mt-6 w-full rounded-lg bg-red-900/50 px-4 py-3 text-sm font-bold text-red-100 hover:bg-red-800 transition">Contact Compliance Team</button>
+                      <div className="mt-5 grid w-full gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => setStep("explore")}
+                          className="w-full rounded-lg bg-white border border-rose-300 px-4 py-3 text-sm font-bold text-rose-900 hover:bg-rose-100 transition"
+                        >
+                          Explore Funding
+                        </button>
+                        <a
+                          href="mailto:support@finflow.ai?subject=FinFlow%20Support%20Request"
+                          className="w-full rounded-lg bg-rose-200 px-4 py-3 text-sm font-bold text-rose-900 hover:bg-rose-300 transition text-center"
+                        >
+                          Contact Support
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {["SCHOLARSHIP_MATCHED", "AUTO_SCHOLARSHIP_RECOMMENDED"].includes(journeyState) && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                    <div className="text-center">
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">
+                        {journeyState === "SCHOLARSHIP_MATCHED" ? "Scholarships Matched" : "Auto: Scholarship Recommended"}
+                      </h2>
+                      <p className="mt-2 text-sm text-slate-700">{resultMessage}</p>
+                    </div>
+
+                    <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Match score</p>
+                      <p className="mt-1 text-2xl font-black text-emerald-700">{scholarshipMatches?.match_score ?? "—"}%</p>
+                      {scholarshipMatches?.best_option?.name && (
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          Best option: <span className="font-black">{scholarshipMatches.best_option.name}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {(scholarshipMatches?.eligible_schemes || []).map((s: any) => (
+                        <div key={s.id || s.name} className="rounded-xl border border-slate-200 bg-white p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">{s.name}</p>
+                              <p className="mt-1 text-xs text-slate-600">{s.provider} • {s.type}</p>
+                              <p className="mt-1 text-xs text-slate-600">{s.eligibility}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-slate-500">Amount</p>
+                              <p className="text-sm font-black text-slate-900">₹{s.amount}</p>
+                            </div>
+                          </div>
+                          <button onClick={() => setStep("explore")} className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500">
+                            Explore more options
+                          </button>
+                        </div>
+                      ))}
+                      {(!scholarshipMatches?.eligible_schemes || scholarshipMatches.eligible_schemes.length === 0) && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                          No scholarship schemes matched yet. Update your profile and try again.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1478,7 +1802,6 @@ function StudentDashboard() {
         </div>
       </main>
     </div>
-    </AppLock>
   );
 }
 
