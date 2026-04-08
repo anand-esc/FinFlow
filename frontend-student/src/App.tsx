@@ -2,16 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import {
-  AlertTriangle,
   ArrowRight,
-  Building2,
   Camera,
   CheckCircle2,
   ChevronLeft,
   Download,
   FileText,
   GraduationCap,
-  Landmark,
   Loader2,
   LogOut,
   RefreshCcw,
@@ -19,6 +16,7 @@ import {
   User,
   Users,
   XCircle,
+  Lock,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { StudentLogin } from "./components/StudentLogin";
@@ -185,7 +183,40 @@ function StudentDashboard() {
   const [bank, setBank] = useState<BankState>(INITIAL_BANK);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState("");
-  const [resultStatus, setResultStatus] = useState<"success" | "warning" | "error">("success");
+  const [journeyState, setJourneyState] = useState<string>("UNKNOWN");
+  
+  useEffect(() => {
+    if (step !== "result" || isSubmitting || !user) return;
+    
+    const pollStatus = async () => {
+      try {
+        const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:8000";
+        const res = await fetch(`${BACKEND_URL}/api/state/${user.uid}`);
+        if (res.ok) {
+          const data = await res.json();
+          const jStatus = data.journeyStatus || data.journeyState || "UNKNOWN";
+          setJourneyState(jStatus);
+          
+          if (jStatus === "ADMIN_APPROVED") {
+            setResultMessage("Your application has been manually approved by the administration. Disbursal initiated.");
+          } else if (jStatus === "REJECTED") {
+            setResultMessage("Unfortunately, your application was declined following a final administrative review.");
+          } else if (jStatus === "DOCS_REUPLOAD_REQUIRED") {
+            setResultMessage("The administration has requested that you re-upload certain documents for clearer verification.");
+          } else if (jStatus === "FRAUD_LOCKOUT") {
+            setResultMessage("Account locked. Critical security anomaly detected in your document submission. Please contact compliance.");
+          } else if (jStatus === "HITL_ESCALATION" || jStatus === "START") {
+            setResultMessage("Your application is currently under manual review by a risk officer.");
+          }
+        }
+      } catch(e) { }
+    };
+
+    const intervalId = setInterval(pollStatus, 2000);
+    pollStatus();
+    return () => clearInterval(intervalId);
+  }, [step, isSubmitting, user]);
+
   const [ocrByDoc, setOcrByDoc] = useState<Record<DocType, { confidence: number; fields: OCRField[] }>>({
     aadhaar: { confidence: 0, fields: [] },
     utility: { confidence: 0, fields: [] },
@@ -661,20 +692,19 @@ function StudentDashboard() {
            new Notification(title, { body, icon: '/pwa-192x192.png' });
         }
       };
-
       if (status === "FRAUD_LOCKOUT") {
-        setResultStatus("error");
+        setJourneyState("FRAUD_LOCKOUT");
         setResultMessage("Security review flagged this application for manual intervention. Our team will contact you shortly.");
         triggerPushNotification("SPARC Security Alert", "Your application has been flagged for manual intervention.");
       } else if (status === "REJECTED") {
-        setResultStatus("error");
+        setJourneyState("REJECTED");
         setResultMessage("Unfortunately, your application was declined based on core policy requirements.");
       } else if (status === "HITL_ESCALATION") {
-        setResultStatus("warning");
+        setJourneyState("HITL_ESCALATION");
         setResultMessage("Submitted successfully. Your profile has been moved to priority counselor review.");
         triggerPushNotification("Application Under Review", "Your profile has been moved to priority counselor review.");
       } else {
-        setResultStatus("success");
+        setJourneyState("ADMIN_APPROVED");
         setResultMessage("Application submitted successfully. You are now progressing to eligibility and funding steps.");
         triggerPushNotification("Application Approved", "Your application was successful. Progressing to funding.");
       }
@@ -686,22 +716,10 @@ function StudentDashboard() {
         // Even if closure is stale, mark Aadhaar as failed just to show it stopped
         updateDocStatus(pendingDoc || "aadhaar", { uploadStatus: "failed", uploadError: message });
       }
-      setResultStatus("error");
+      setJourneyState("REJECTED");
       setResultMessage(`Submission crashed! ERROR MSG: ${message}`);
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const retryFailedUpload = async (docType: DocType) => {
-    if (!user) return;
-    const target = docs.find((d) => d.type === docType);
-    if (!target) return;
-    try {
-      await uploadSingleDoc(target);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Retry failed";
-      updateDocStatus(docType, { uploadStatus: "failed", uploadError: message });
     }
   };
 
@@ -1326,108 +1344,128 @@ function StudentDashboard() {
 
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-100">
-                  {resultStatus === "success" && <CheckCircle2 className="h-8 w-8 text-emerald-400" />}
-                  {resultStatus === "warning" && <Landmark className="h-8 w-8 text-amber-300" />}
-                  {resultStatus === "error" && <Building2 className="h-8 w-8 text-rose-400" />}
-                </div>
-                <h2 className="text-2xl font-bold text-slate-900">Submission Result</h2>
-                <p className="mx-auto max-w-xl text-sm text-slate-700">{resultMessage}</p>
-                {resultStatus === "warning" && (
-                  <div className="mx-auto mt-2 max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-4 text-left text-sm text-amber-900 border-l-4 border-l-amber-500 shadow-sm">
-                    <p className="mb-2 inline-flex items-center gap-2 font-bold text-base">
-                      <AlertTriangle className="h-5 w-5" /> Policy vs Bank Mismatch Detected
-                    </p>
-                    <p className="mb-3">Your profile meets initial policy guidelines but falls short of specific lender risk thresholds. The AI engine recommends the following modifications to pass the Bank Filter:</p>
-                    <ul className="space-y-1.5 list-disc list-inside ml-2 font-medium">
-                       {Number(profile.monthlyIncome) < 50000 && <li>Add Co-Applicant income to reach ₹50,000/mo minimum.</li>}
-                       {Number(profile.cibilScore) < 700 && <li>Provide a Co-Applicant with a CIBIL score of 750+.</li>}
-                       {profile.collateral === "No" && <li>Add Property or FD collateral to lower risk exposure.</li>}
-                       <li>Decrease required loan amount or extend tenure to reduce EMI stress.</li>
-                    </ul>
-                    <div className="mt-5 border-t border-amber-200 pt-3 flex flex-col sm:flex-row gap-3 items-center justify-between">
-                      <p className="text-xs text-amber-700 w-full sm:w-1/2">Try adjusting these parameters live to see how they impact your probability of approval.</p>
-                      <button onClick={() => setStep("profile")} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white font-bold hover:bg-indigo-700 transition shadow-sm">
-                        <RefreshCcw className="h-4 w-4" /> Run 'What-If' Simulation
+              <div className="space-y-4">
+                {journeyState === "ADMIN_APPROVED" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border-2 border-emerald-500 bg-white p-6 shadow-lg shadow-emerald-500/10">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-500 mb-4">
+                        <CheckCircle2 className="h-10 w-10" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Approved</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "REJECTED" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border-2 border-rose-600 bg-white p-6 shadow-lg shadow-rose-600/10">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-rose-50 text-rose-600 mb-4">
+                        <XCircle className="h-10 w-10" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Declined</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "FRAUD_LOCKOUT" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border-2 border-red-900 bg-slate-900 p-6 shadow-2xl">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-20 w-20 place-items-center rounded-full bg-red-950 text-red-500 mb-4 shadow-[0_0_30px_rgba(220,38,38,0.4)]">
+                        <Lock className="h-10 w-10" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-white uppercase tracking-widest text-red-50">Security Lockout</h2>
+                      <p className="mt-3 text-sm font-medium text-red-200">
+                        {resultMessage}
+                      </p>
+                      <button className="mt-6 w-full rounded-lg bg-red-900/50 px-4 py-3 text-sm font-bold text-red-100 hover:bg-red-800 transition">Contact Compliance Team</button>
+                    </div>
+                  </div>
+                )}
+
+                {journeyState === "DOCS_REUPLOAD_REQUIRED" && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-indigo-200 bg-white p-6 shadow-md">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-indigo-50 text-indigo-600 mb-4">
+                        <FileText className="h-8 w-8" />
+                      </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Action Required</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {resultMessage}
+                      </p>
+                      <button onClick={() => setStep("documents")} className="mt-6 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition shadow-md inline-flex flex items-center justify-center gap-2">
+                        <RefreshCcw className="h-4 w-4" /> Go to Document Upload
                       </button>
                     </div>
                   </div>
                 )}
-                <div className="mx-auto mt-3 max-w-md space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
-                  {docs.map((d) => (
-                    <div key={d.type} className="flex items-center justify-between text-xs">
-                      <span className="capitalize text-slate-700">{d.type}</span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={
-                            d.uploadStatus === "uploaded"
-                              ? "text-emerald-300"
-                              : d.uploadStatus === "failed"
-                              ? "text-rose-300"
-                              : d.uploadStatus === "cancelled"
-                              ? "text-amber-300"
-                              : "text-slate-500"
-                          }
-                        >
-                          {d.uploadStatus.toUpperCase()}
-                        </span>
-                        {(d.uploadStatus === "failed" || d.uploadStatus === "cancelled") && (
-                          <button
-                            onClick={() => retryFailedUpload(d.type)}
-                            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-[10px] font-semibold text-slate-700"
-                          >
-                            <RefreshCcw className="h-3 w-3" /> Retry
-                          </button>
-                        )}
+
+                {["HITL_ESCALATION", "START", "UNKNOWN"].includes(journeyState) && (
+                  <div className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col items-center text-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-full bg-slate-50 text-slate-500 mb-4">
+                        <Loader2 className="h-8 w-8 animate-spin" />
                       </div>
+                      <h2 className="font-outfit text-2xl font-black text-slate-900 uppercase tracking-wide">Under Review</h2>
+                      <p className="mt-2 text-sm font-medium text-slate-600">
+                        {resultMessage || "Your application is securely queued for administrative review."}
+                      </p>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                )}
 
-                <div className="mx-auto mt-6 max-w-md rounded-xl border border-indigo-200 bg-white overflow-hidden shadow-sm">
-                  <div className="bg-indigo-50 border-b border-indigo-100 p-3 text-left">
-                    <p className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-2">
-                       Ask FinFlow AI
-                    </p>
+                {journeyState !== "FRAUD_LOCKOUT" && (
+                  <div className="mx-auto mt-6 max-w-md rounded-xl border border-indigo-200 bg-white overflow-hidden shadow-sm">
+                    <div className="bg-indigo-50 border-b border-indigo-100 p-3 text-left">
+                      <p className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-2">
+                         Ask FinFlow AI
+                      </p>
+                    </div>
+                    <div className="p-4 flex flex-col gap-3 min-h-[120px] max-h-64 overflow-y-auto text-left">
+                      {chatHistory.length === 0 ? (
+                        <p className="text-xs text-slate-500 italic">Curious why you got this result or how to improve? Ask the AI model that scored you.</p>
+                      ) : (
+                        chatHistory.map((msg, i) => (
+                          <div key={i} className={`text-xs p-2.5 rounded-lg ${msg.role === 'user' ? 'bg-slate-100 text-slate-800 self-end ml-6' : 'bg-indigo-50 text-indigo-900 self-start mr-6'}`}>
+                            {msg.content}
+                          </div>
+                        ))
+                      )}
+                      {isChatting && <div className="text-xs text-indigo-500 italic p-2 bg-indigo-50 rounded-lg self-start">FinFlow AI is typing...</div>}
+                    </div>
+                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
+                      <input 
+                        type="text" 
+                        value={chatInput} 
+                        onChange={e => setChatInput(e.target.value)} 
+                        onKeyDown={e => e.key === 'Enter' && handleChat()}
+                        placeholder="E.g., How much more income do I need?" 
+                        className="flex-1 rounded border border-slate-300 px-3 py-1.5 text-xs focus:outline-indigo-500"
+                      />
+                      <button onClick={handleChat} disabled={isChatting || !chatInput.trim()} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold disabled:opacity-50">Send</button>
+                    </div>
                   </div>
-                  <div className="p-4 flex flex-col gap-3 min-h-[120px] max-h-64 overflow-y-auto text-left">
-                    {chatHistory.length === 0 ? (
-                      <p className="text-xs text-slate-500 italic">Curious why you got this result or how to improve? Ask the AI model that scored you.</p>
-                    ) : (
-                      chatHistory.map((msg, i) => (
-                        <div key={i} className={`text-xs p-2.5 rounded-lg ${msg.role === 'user' ? 'bg-slate-100 text-slate-800 self-end ml-6' : 'bg-indigo-50 text-indigo-900 self-start mr-6'}`}>
-                          {msg.content}
-                        </div>
-                      ))
-                    )}
-                    {isChatting && <div className="text-xs text-indigo-500 italic p-2 bg-indigo-50 rounded-lg self-start">FinFlow AI is typing...</div>}
-                  </div>
-                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex gap-2">
-                    <input 
-                      type="text" 
-                      value={chatInput} 
-                      onChange={e => setChatInput(e.target.value)} 
-                      onKeyDown={e => e.key === 'Enter' && handleChat()}
-                      placeholder="E.g., How much more income do I need?" 
-                      className="flex-1 rounded border border-slate-300 px-3 py-1.5 text-xs focus:outline-indigo-500"
-                    />
-                    <button onClick={handleChat} disabled={isChatting || !chatInput.trim()} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-bold disabled:opacity-50">Send</button>
-                  </div>
-                </div>
+                )}
 
-                <button
-                  onClick={() => {
-                    setStep("home");
-                    setDocIndex(0);
-                    setDocs(DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" })));
-                    setProfile(INITIAL_PROFILE);
-                    setBank(INITIAL_BANK);
-                  }}
-                  className="mt-2 rounded-lg bg-white px-4 py-2 text-xs font-bold text-slate-900"
-                >
-                  Start New Application
-                </button>
+                {journeyState !== "FRAUD_LOCKOUT" && (
+                  <button
+                    onClick={() => {
+                      setStep("home");
+                      setDocIndex(0);
+                      setDocs(DOC_FLOW.map((d) => ({ type: d.type, label: d.label, uploadStatus: "idle" })));
+                      setProfile(INITIAL_PROFILE);
+                      setBank(INITIAL_BANK);
+                    }}
+                    className="mt-6 rounded-lg bg-white border border-slate-300 px-5 py-2.5 text-xs font-bold text-slate-900 hover:bg-slate-50 transition block mx-auto"
+                  >
+                    Start New Application
+                  </button>
+                )}
               </div>
             )}
           </motion.div>
