@@ -1,5 +1,6 @@
 # FinFlow AI (SPARC) — Production‑grade AI fintech demo
 
+---
 TEAM NAME: PENTAFLUX
 TEAM NUMBER: 9
 PS: 4
@@ -10,6 +11,7 @@ Swatam Kumar Panda
 Moumita Dash
 Anwesha Sharma
 
+---
 FinFlow AI is a multi‑agent fintech platform for **education loan onboarding** with:
 - **Ephemeral documents** (base64 in → agent verification → zero retention)
 - **4‑layer fraud detection** (format → cross‑match → vision → trust score)
